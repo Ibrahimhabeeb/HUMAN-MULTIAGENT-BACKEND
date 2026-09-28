@@ -1,0 +1,33 @@
+# Virtual environment (uv creates it; rebuild any time with `uv sync`)
+.venv/
+
+# Secrets: API keys live here. Never commit.
+.env
+.env.*
+!.env.example
+
+# Python bytecode and build output
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Runtime data (session logs, sandboxed runs, local databases)
+logs/
+*.log
+*.sqlite3
+*.db
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

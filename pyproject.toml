@@ -1,0 +1,25 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Secure Coding Room backend: multi-agent orchestration and code runner."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "bandit>=1.9.4",
+    "fastapi>=0.141.1",
+    "langchain-anthropic>=1.7.4",
+    "langchain-core>=1.6.5",
+    "langgraph>=1.2.12",
+    "pydantic-settings>=2.15.0",
+    "uvicorn[standard]>=0.54.0",
+]
+[tool.uv]
+# The project lives in OneDrive, which rejects hardlinks; copy packages into .venv instead.
+link-mode = "copy"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+]
