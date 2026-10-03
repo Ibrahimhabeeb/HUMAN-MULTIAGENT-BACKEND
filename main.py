@@ -1,10 +1,22 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.state import router as state_router
+from api.projects import router as projects_router
+from api.sessions import router as sessions_router
+from db import init_db
 
-app = FastAPI(title="Secure Coding Room API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    init_db()
+    yield
+
+
+app = FastAPI(title="Secure Coding Room API", version="0.1.0", lifespan=lifespan)
 
 FRONTEND_ORIGINS = [
     "http://localhost:5001",
@@ -26,7 +38,8 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-app.include_router(state_router)
+app.include_router(projects_router)
+app.include_router(sessions_router)
 
 
 if __name__ == "__main__":
