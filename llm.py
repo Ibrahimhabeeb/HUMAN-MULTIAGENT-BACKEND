@@ -8,6 +8,10 @@ class ModelNotConfiguredError(RuntimeError):
     pass
 
 
+class ModelCallError(RuntimeError):
+    pass
+
+
 def get_model() -> BaseChatModel:
     settings = get_settings()
     if not settings.llm_model:

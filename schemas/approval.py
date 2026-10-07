@@ -1,8 +1,8 @@
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from schemas.common import UtcDatetime
 from schemas.security_state import (
     AssumptionCreate,
     FindingCreate,
@@ -69,8 +69,8 @@ class ApprovalOut(BaseModel):
     proposal: dict[str, Any]
     final_proposal: dict[str, Any] | None
     status: ApprovalStatus
-    requested_at: datetime
-    decided_at: datetime | None
+    requested_at: UtcDatetime
+    decided_at: UtcDatetime | None
     result: dict[str, Any] | None
 
 

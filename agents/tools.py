@@ -1,140 +1,114 @@
-import json
-
 from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
 
-from agents.roles import Specialist
-from schemas.security_state import MitigationCreate, RiskCreate, Severity
-from services import state_service, workspace
-from services.errors import ConflictError, InvalidPathError, NotFoundError
+from agents.context import AgentContext, Proposal, numbered
+from schemas.approval import PROPOSAL_SCHEMAS
+from schemas.security_state import Severity
 
-MAX_FILE_CHARS_FOR_AGENT = 20_000
+# Which tools each agent gets. Reading tools only look at the run's snapshot;
+# every other tool records a proposal that waits for the human's approval.
+TOOLS_FOR: dict[str, list[str]] = {
+    "planner": ["list_files", "read_file", "read_task_description"],
+    "threat_modeller": [
+        "list_files",
+        "read_file",
+        "read_task_description",
+        "get_security_state",
+        "propose_assumption",
+        "propose_risk",
+        "propose_mitigation",
+    ],
+    "reviewer": [
+        "list_files",
+        "read_file",
+        "read_task_description",
+        "get_security_state",
+        "propose_finding",
+        "suggest_fix",
+        "mark_resolved",
+    ],
+    # Tests are written from the approved risks and the task's interface, not from the code.
+    "verifier": ["read_task_description", "get_security_state", "propose_test"],
+    "assistant": ["list_files", "read_file", "suggest_fix", "propose_test"],
+}
 
 
-def make_tools(
-    db: Session, project_id: str, session_id: str, role: Specialist
-) -> list[BaseTool]:
-    # Tools are built per request so they always act on this project, in this session,
-    # under this agent's own name. Errors are returned as text so the model can correct itself.
-
-    def safely(action) -> str:
+def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
+    def record(action_type: str, **fields) -> str:
         try:
-            return action()
-        except (NotFoundError, ConflictError, InvalidPathError, ValidationError) as e:
-            return f"Error: {e}"
+            data = PROPOSAL_SCHEMAS[action_type].model_validate({k: v for k, v in fields.items() if v is not None})
+        except ValidationError as e:
+            return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
+        ctx.proposals.append(Proposal(actor, action_type, data.model_dump(mode="json")))
+        return f"Recorded as proposal #{len(ctx.proposals)}. It waits for the developer's approval."
 
     @tool
     def list_files() -> str:
         """List the paths of every file in the project."""
-        return "\n".join(
-            p
-            for p, node in workspace.list_files(db, project_id).items()
-            if node["type"] == "file"
-        )
+        return "\n".join(sorted(ctx.files))
 
     @tool
     def read_file(path: str) -> str:
-        """Read one project file, e.g. "app/auth.py"."""
-        return safely(
-            lambda: workspace.read_file(db, project_id, path)["content"][
-                :MAX_FILE_CHARS_FOR_AGENT
-            ]
-        )
+        """Read one project file, with line numbers, e.g. "app/auth.py"."""
+        if path not in ctx.files:
+            return f"No file called {path}. Use list_files to see the files."
+        return numbered(ctx.files[path])
+
+    @tool
+    def read_task_description() -> str:
+        """Read the task description (README.md), including the interface to implement."""
+        return ctx.task_description
 
     @tool
     def get_security_state() -> str:
-        """Get the shared security state: requirements, assumptions, risks, mitigations, evidence, questions."""
-        return state_service.get_state(db, project_id).model_dump_json(indent=1)
+        """Get the approved shared security state: assumptions, risks, mitigations, findings, evidence and tests."""
+        return ctx.state.model_dump_json(indent=1, exclude={"counters"}) if ctx.state else "No security state."
 
     @tool
-    def add_requirement(text: str) -> str:
-        """Record a requirement the implementation must meet."""
-        return safely(
-            lambda: (
-                state_service.add_requirement(db, project_id, session_id, text, role).id
-            )
-        )
+    def propose_assumption(text: str) -> str:
+        """Propose an assumption the analysis relies on."""
+        return record("propose_assumption", text=text)
 
     @tool
-    def add_assumption(text: str) -> str:
-        """Record an assumption the plan relies on."""
-        return safely(
-            lambda: (
-                state_service.add_assumption(db, project_id, session_id, text, role).id
-            )
-        )
+    def propose_risk(
+        description: str, severity: Severity, cwe: str | None = None, owasp: str | None = None, stride: str | None = None
+    ) -> str:
+        """Propose a security risk. cwe looks like "CWE-89"; owasp is an OWASP Top 10 category; stride a STRIDE category."""
+        return record("propose_risk", description=description, severity=severity, cwe=cwe, owasp=owasp, stride=stride)
 
     @tool
-    def add_question(text: str) -> str:
-        """Record an open question the human needs to answer."""
-        return safely(
-            lambda: (
-                state_service.add_question(db, project_id, session_id, text, role).id
-            )
-        )
+    def propose_mitigation(risk_id: str, description: str) -> str:
+        """Propose a mitigation for a risk: an approved risk id like "R1", or "#n" for a risk you proposed this turn."""
+        return record("propose_mitigation", risk_id=risk_id, description=description)
 
     @tool
-    def add_risk(
+    def propose_finding(
         description: str,
         severity: Severity,
-        cwe: str | None = None,
-        owasp: str | None = None,
-        stride: str | None = None,
         file: str | None = None,
         line: int | None = None,
+        cwe: str | None = None,
+        risk_id: str | None = None,
     ) -> str:
-        """Record a security risk. cwe looks like "CWE-89"; file and line point at the code if known."""
-
-        def record() -> str:
-            data = RiskCreate(
-                description=description,
-                severity=severity,
-                cwe=cwe,
-                owasp=owasp,
-                stride=stride,
-                file=file,
-                line=line,
-            )
-            return state_service.add_risk(db, project_id, session_id, data, role).id
-
-        return safely(record)
+        """Propose a finding: a weakness in the code, with its file and line, linked to a risk id if it is one."""
+        return record(
+            "propose_finding", description=description, severity=severity, file=file, line=line, cwe=cwe, risk_id=risk_id
+        )
 
     @tool
-    def add_mitigation(risk_id: str, description: str) -> str:
-        """Propose a mitigation for an existing risk, e.g. risk_id "R1"."""
+    def suggest_fix(finding: str, file: str, location: str, code: str, why: str) -> str:
+        """Suggest a fix: what it fixes (e.g. "F2" or "#1"), the file, where the code goes, the code, and why."""
+        return record("suggest_fix", finding=finding, file=file, location=location, code=code, why=why)
 
-        def record() -> str:
-            data = MitigationCreate(risk_id=risk_id, description=description)
-            return state_service.add_mitigation(
-                db, project_id, session_id, data, role
-            ).id
+    @tool
+    def mark_resolved(item_id: str, reason: str) -> str:
+        """Propose marking a finding (F1) or risk (R2) as resolved, with the reason."""
+        return record("mark_resolved", item_id=item_id, reason=reason)
 
-        return safely(record)
+    @tool
+    def propose_test(path: str, content: str, risk_ids: list[str] | None = None) -> str:
+        """Propose a pytest file, e.g. path "tests/test_security_login.py", and the risk ids it covers."""
+        return record("propose_test", path=path, content=content, risk_ids=risk_ids or [])
 
-    read_tools = [list_files, read_file, get_security_state]
-    role_tools: dict[str, list[BaseTool]] = {
-        "planner": [add_requirement, add_assumption, add_question],
-        "threat_modeller": [add_risk, add_mitigation, add_question],
-        "reviewer": [add_risk, add_mitigation],
-        "verifier": [add_question],
-    }
-    return read_tools + role_tools[role]
-
-
-def summarise_state(db: Session, project_id: str) -> str:
-    state = state_service.get_state(db, project_id)
-    return json.dumps(
-        {
-            "requirements": len(state.requirements),
-            "risks": [
-                {"id": r.id, "status": r.status, "approved": r.human_approved}
-                for r in state.risks
-            ],
-            "mitigations": [
-                {"id": m.id, "risk": m.risk_id, "status": m.status}
-                for m in state.mitigations
-            ],
-            "open_questions": [q.id for q in state.questions if q.answer is None],
-        }
-    )
+    available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
+    return [available[name] for name in TOOLS_FOR[actor]]

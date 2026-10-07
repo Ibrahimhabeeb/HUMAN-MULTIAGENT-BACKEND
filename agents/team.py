@@ -1,166 +1,162 @@
-import sqlite3
-from collections.abc import Generator
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Literal
+import json
+import time
 
-from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.graph import END, START, MessagesState, StateGraph
-from pydantic import BaseModel, Field
+from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import Session
 
+from agents import runtime
+from agents.context import AgentContext, build_context, code_listing
 from agents.roles import (
     FACILITATOR_PROMPT,
+    REVIEW_MESSAGE,
     ROLE_PROMPTS,
     SHARED_RULES,
     SPECIALISTS,
     Specialist,
 )
-from agents.tools import make_tools, summarise_state
-from config import get_settings
-from llm import get_model
+from agents.tools import make_tools
+from agents.turns import agent_turn, log_message_sent, merge, model_call, save_turn
+from models import Message, Workspace
+from schemas.security_state import SecurityState
+from services import approvals, chat, state_service, workspace
+from services.events import log_event
 
-MAX_SPECIALISTS_PER_TURN = 3
-
-
-class TeamState(MessagesState):
-    targets: list[
-        str
-    ]  # specialists the human asked for by name this turn (empty = Facilitator decides)
-    done: list[str]  # specialists who have already replied this turn
-    next: str
+NO_RISKS_NOTICE = (
+    "The Verifier writes security tests from approved risks. There are none yet, so it had nothing to test."
+)
 
 
-class Route(BaseModel):
-    next: Literal["planner", "threat_modeller", "reviewer", "verifier", "finish"]
-    message: str = Field(
-        description="If finishing: your reply to the developer. Otherwise: one line on why."
+def _prompt(role: Specialist) -> str:
+    return ROLE_PROMPTS[role] + SHARED_RULES
+
+
+def _state_summary(db: Session, ws: Workspace) -> str:
+    state = state_service.load(ws)
+    return json.dumps(
+        {
+            "risks": [{"id": r.id, "status": r.status} for r in state.risks],
+            "open_findings": [f.id for f in state.findings if f.status == "open"],
+            "mitigations": len(state.mitigations),
+            "tests": len(state.tests),
+            "proposals_waiting_for_approval": len(approvals.list_approvals(db, ws, "pending")),
+        }
     )
 
 
-def _text(message: BaseMessage) -> str:
-    if isinstance(message.content, str):
-        return message.content
-    return "".join(
-        part.get("text", "") for part in message.content if isinstance(part, dict)
+# ---- the Facilitator suggests; the human decides whom to consult -----------------------------
+
+
+def _ask_facilitator(db: Session, ws: Workspace, content: str) -> dict:
+    consulted = [role for role in SPECIALISTS if chat.thread_messages(db, ws, role)]
+    prompt = FACILITATOR_PROMPT.format(consulted=", ".join(consulted) or "none", state_summary=_state_summary(db, ws))
+    messages = [*chat.as_langchain(chat.thread_messages(db, ws, "facilitator")), HumanMessage(content)]
+    started = time.monotonic()
+    with model_call(db, ws, "facilitator"):
+        reply = runtime.facilitate(prompt, messages)
+    seconds = round(time.monotonic() - started, 1)
+
+    suggestions: dict[str, dict] = {}
+    for suggestion in reply.suggestions:
+        suggestions.setdefault(suggestion.agent, suggestion.model_dump())  # one button per agent
+    human = chat.add_message(db, ws, "facilitator", "human", content)
+    agent = chat.add_message(db, ws, "facilitator", "agent", reply.message, {"suggestions": list(suggestions.values())})
+    log_event(
+        db,
+        ws.participant_code,
+        "facilitator_suggested",
+        actor="facilitator",
+        mode=ws.mode,
+        detail={"agents": list(suggestions), "seconds": seconds},
     )
+    db.commit()
+    return {"messages": [human, agent], "approvals": []}
 
 
-def _build_graph(
-    db: Session, project_id: str, session_id: str, checkpointer: SqliteSaver
-):
-    model = get_model()
-    router = model.with_structured_output(Route)
+def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
+    chat.require_thread(ws, thread)
+    log_message_sent(db, ws, thread, content)
+    if thread == "facilitator":
+        return _ask_facilitator(db, ws, content)
+    return agent_turn(db, ws, thread, _prompt(thread), build_context(ws), content)  # type: ignore[arg-type]
 
-    def facilitator(state: TeamState) -> dict:
-        done = state.get("done", [])
-        targets = state.get("targets", [])
-        if targets:
-            remaining = [a for a in targets if a not in done]
-            return {"next": remaining[0] if remaining else "finish"}
 
-        prompt = FACILITATOR_PROMPT.format(
-            done=", ".join(done) or "none",
-            state_summary=summarise_state(db, project_id),
+def _suggested_reason(facilitator: list[Message], agent: Specialist) -> str | None:
+    # Why the Facilitator's latest reply suggested this agent, if it did.
+    replies = [m for m in facilitator if m.role == "agent"]
+    suggestions = replies[-1].data.get("suggestions", []) if replies else []
+    return next((s["reason"] for s in suggestions if s["agent"] == agent), None)
+
+
+def consult(db: Session, ws: Workspace, agent: Specialist) -> dict:
+    # The human clicked to consult an agent: one the Facilitator suggested, or their own choice.
+    state_service.require_team(ws)
+    facilitator = chat.thread_messages(db, ws, "facilitator")
+    told = "\n\n".join(m.content for m in facilitator if m.role == "human")
+    reason = _suggested_reason(facilitator, agent)
+    text = "The developer is consulting you."
+    if told:
+        text += f"\n\nWhat they told the Facilitator:\n{told[-4000:]}"
+    if reason:
+        text += f"\n\nThe Facilitator suggested you because: {reason}"
+    log_event(
+        db, ws.participant_code, "agent_consulted", mode=ws.mode, detail={"agent": agent, "suggested": reason is not None}
+    )
+    return agent_turn(db, ws, agent, _prompt(agent), build_context(ws), text, data={"consult": True})
+
+
+# ---- Ready for review: the Reviewer and the Verifier in parallel -------------------------------
+
+
+def _risk_list(state: SecurityState) -> str:
+    tested = {risk_id: test.path for test in state.tests for risk_id in test.risk_ids}
+    lines = []
+    for risk in state.risks:
+        line = f"- {risk.id} ({risk.severity}{', ' + risk.cwe if risk.cwe else ''}): {risk.description}"
+        lines.append(line + (f" [already tested in {tested[risk.id]}]" if risk.id in tested else ""))
+    return "\n".join(lines)
+
+
+def review(db: Session, ws: Workspace) -> dict:
+    # Each agent gets its own context, so their proposals stay apart while they run side by side.
+    reviewer_ctx, verifier_ctx = build_context(ws), build_context(ws)
+    state = verifier_ctx.state or SecurityState()
+    review_text = f"{REVIEW_MESSAGE}\n\n{code_listing(reviewer_ctx.files)}"
+    verifier_text = "The developer clicked Ready for review. Write security tests for the approved risks:\n"
+    verifier_text += _risk_list(state)
+    seconds: dict[str, float] = {}
+
+    def job(role: Specialist, ctx: AgentContext, text: str):
+        tools = make_tools(ctx, role)
+        messages = [*chat.as_langchain(chat.thread_messages(db, ws, role)), HumanMessage(text)]
+
+        def call() -> str:
+            started = time.monotonic()
+            reply = runtime.run_agent(_prompt(role), tools, messages)
+            seconds[role] = time.monotonic() - started
+            return reply
+
+        return call
+
+    jobs = {"reviewer": job("reviewer", reviewer_ctx, review_text)}
+    if state.risks:  # tests are written from approved risks; with none, the Verifier has nothing to work from
+        jobs["verifier"] = job("verifier", verifier_ctx, verifier_text)
+
+    snapshot = workspace.snapshot(ws, "review")
+    data = {"snapshot": snapshot.name}
+    log_event(db, ws.participant_code, "ready_for_review", mode=ws.mode, detail={**data, "agents": list(jobs)})
+    with model_call(db, ws, *jobs):
+        replies = runtime.run_parallel(jobs)
+
+    # The code listing isn't kept in the chat; the snapshot holds exactly what was reviewed.
+    reviewed = save_turn(
+        db, ws, "reviewer", REVIEW_MESSAGE, replies["reviewer"], reviewer_ctx, seconds["reviewer"], data
+    )
+    if "verifier" in replies:
+        verified = save_turn(
+            db, ws, "verifier", verifier_text, replies["verifier"], verifier_ctx, seconds["verifier"], data
         )
-        if len(done) >= MAX_SPECIALISTS_PER_TURN:
-            prompt += "\nYou must finish now."
-        decision = router.invoke([SystemMessage(prompt), *state["messages"]])
-
-        if (
-            decision.next == "finish"
-            or decision.next in done
-            or len(done) >= MAX_SPECIALISTS_PER_TURN
-        ):
-            return {
-                "next": "finish",
-                "messages": [AIMessage(decision.message, name="facilitator")],
-            }
-        return {"next": decision.next}
-
-    def specialist(role: Specialist):
-        agent = create_agent(
-            model,
-            tools=make_tools(db, project_id, session_id, role),
-            system_prompt=ROLE_PROMPTS[role] + SHARED_RULES,
-        )
-
-        def run(state: TeamState) -> dict:
-            result = agent.invoke({"messages": state["messages"]})
-            reply = _text(result["messages"][-1])
-            return {
-                "messages": [AIMessage(reply, name=role)],
-                "done": [*state.get("done", []), role],
-            }
-
-        return run
-
-    graph = StateGraph(TeamState)
-    graph.add_node("facilitator", facilitator)
-    for role in SPECIALISTS:
-        graph.add_node(role, specialist(role))
-        graph.add_edge(role, "facilitator")
-    graph.add_edge(START, "facilitator")
-    graph.add_conditional_edges(
-        "facilitator",
-        lambda state: state["next"],
-        {**{r: r for r in SPECIALISTS}, "finish": END},
-    )
-    return graph.compile(checkpointer=checkpointer)
-
-
-@contextmanager
-def _checkpointer() -> Generator[SqliteSaver]:
-    # Each session's conversation is saved here, keyed by session id, so it survives restarts.
-    path = Path(get_settings().checkpoint_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
-    try:
-        yield SqliteSaver(conn)
-    finally:
-        conn.close()
-
-
-def _as_chat(message: BaseMessage) -> dict:
-    agent = (
-        "human"
-        if isinstance(message, HumanMessage)
-        else (message.name or "facilitator")
-    )
-    return {"agent": agent, "content": _text(message)}
-
-
-def _thread(session_id: str) -> dict:
-    return {"configurable": {"thread_id": session_id}}
-
-
-def run_turn(
-    db: Session,
-    project_id: str,
-    session_id: str,
-    content: str,
-    agents: list[Specialist] | None = None,
-) -> list[dict]:
-    with _checkpointer() as checkpointer:
-        graph = _build_graph(db, project_id, session_id, checkpointer)
-        before = len(graph.get_state(_thread(session_id)).values.get("messages", []))
-        result = graph.invoke(
-            {
-                "messages": [HumanMessage(content)],
-                "targets": list(agents or []),
-                "done": [],
-            },
-            _thread(session_id),
-        )
-    # Only the agents' replies to this message (skip the human message itself).
-    return [_as_chat(m) for m in result["messages"][before + 1 :]]
-
-
-def history(session_id: str) -> list[dict]:
-    with _checkpointer() as checkpointer:
-        saved = checkpointer.get_tuple(_thread(session_id))
-    if saved is None:
-        return []
-    return [_as_chat(m) for m in saved.checkpoint["channel_values"].get("messages", [])]
+    else:
+        notice = chat.add_message(db, ws, "verifier", "system", NO_RISKS_NOTICE, data)
+        db.commit()
+        verified = {"messages": [notice], "approvals": []}
+    return merge(reviewed, verified)

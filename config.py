@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     llm_model: str | None = None
     llm_api_key: SecretStr | None = None
     database_url: str = "sqlite:///./data/app.db"
-    checkpoint_path: str = "data/checkpoints.db"
     content_dir: str = "content"
     starter_dir: str = "starter"
     workspaces_dir: str = "workspaces"
