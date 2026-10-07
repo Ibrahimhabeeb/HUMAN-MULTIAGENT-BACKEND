@@ -3,7 +3,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from schemas.security_state import AssumptionCreate, FindingCreate, MitigationCreate, RiskCreate
+from schemas.security_state import (
+    AssumptionCreate,
+    FindingCreate,
+    MitigationCreate,
+    RiskCreate,
+)
 from schemas.workspace import MAX_FILE_CHARS
 
 ActionType = Literal[

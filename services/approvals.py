@@ -5,7 +5,14 @@ from sqlalchemy.orm import Session
 
 from models import Approval, Workspace
 from models.common import as_utc, utc_now
-from schemas.approval import NOT_EDITABLE, PROPOSAL_SCHEMAS, SINGLE_MODE_ACTIONS, ActionType, Decision, ProposedTest
+from schemas.approval import (
+    NOT_EDITABLE,
+    PROPOSAL_SCHEMAS,
+    SINGLE_MODE_ACTIONS,
+    ActionType,
+    Decision,
+    ProposedTest,
+)
 from services import state_service, workspace
 from services.errors import ConflictError, InvalidInputError, NotFoundError
 from services.events import log_event
