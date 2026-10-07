@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from config import get_settings
-from models import ConsentRecord, Participant, Workspace
+from models import ConsentRecord, Participant, SurveyResponse, Workspace
 from models.common import as_utc, utc_now
 from schemas.security_state import SecurityState
 from schemas.study import Mode, Screen
@@ -125,7 +125,8 @@ def done(db: Session) -> None:
 
 
 def _questionnaire_submitted(db: Session, participant: Participant) -> bool:
-    return False
+    query = select(SurveyResponse.id).where(SurveyResponse.participant_code == participant.code).limit(1)
+    return db.scalar(query) is not None
 
 
 def _screen_for(db: Session, participant: Participant, parts: dict[str, Workspace]) -> Screen:

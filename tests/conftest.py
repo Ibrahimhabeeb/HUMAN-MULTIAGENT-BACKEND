@@ -1,3 +1,6 @@
+import json
+import shutil
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -62,3 +65,62 @@ def team(enrol):
 @pytest.fixture
 def single(enrol):
     return enrol(mode="single")
+
+
+@pytest.fixture
+def finish_parts(client):
+    # Clicks Done on the current part, switches to the other mode and clicks Done again.
+    def _finish():
+        mode = client.get("/study/state").json()["mode"]
+        client.post("/study/done")
+        client.post("/study/mode", json={"mode": "single" if mode == "team" else "team"})
+        client.post("/study/done")
+
+    return _finish
+
+
+# A stand-in for content/questionnaire.json; the real wording is added once it is approved.
+SAMPLE_QUESTIONNAIRE = {
+    "version": "test",
+    "sections": [
+        {
+            "title": "Each mode",
+            "asked_for": "each_mode",
+            "questions": [{"key": "confidence", "type": "scale", "text": "I am confident my final code is secure."}],
+        },
+        {
+            "title": "Agent team",
+            "asked_for": "team",
+            "questions": [{"key": "roles_clear", "type": "scale", "text": "Each agent's role was clear."}],
+        },
+        {
+            "title": "Comparing",
+            "asked_for": "once",
+            "questions": [
+                {
+                    "key": "preferred",
+                    "type": "choice",
+                    "text": "Which would you rather use?",
+                    "options": ["Agent team", "Single assistant", "No preference"],
+                },
+                {"key": "difference", "type": "text", "text": "What was the biggest difference?"},
+            ],
+        },
+    ],
+}
+
+
+@pytest.fixture
+def content_dir(tmp_path, monkeypatch):
+    # A copy of content/ without questionnaire.json, so tests don't depend on whether it exists yet.
+    settings = get_settings()
+    folder = tmp_path / "content"
+    shutil.copytree(settings.content_dir, folder, ignore=shutil.ignore_patterns("questionnaire.json"))
+    monkeypatch.setattr(settings, "content_dir", str(folder))
+    return folder
+
+
+@pytest.fixture
+def sample_questionnaire(content_dir):
+    (content_dir / "questionnaire.json").write_text(json.dumps(SAMPLE_QUESTIONNAIRE), encoding="utf-8")
+    return SAMPLE_QUESTIONNAIRE

@@ -10,11 +10,13 @@ from api.chat import router as chat_router
 from api.study import router as study_router
 from api.workspace import router as workspace_router
 from db import init_db
+from services import questionnaire
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     init_db()
+    questionnaire.check()
     yield
 
 

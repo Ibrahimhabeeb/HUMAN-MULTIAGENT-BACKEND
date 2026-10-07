@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from api.errors import run
 from db import get_db
+from schemas.questionnaire import QuestionnaireAnswers, QuestionnaireOut
 from schemas.study import (
     ConsentContent,
     ConsentRequest,
@@ -13,7 +14,7 @@ from schemas.study import (
     StartRequest,
     StudyState,
 )
-from services import content, study
+from services import content, questionnaire, study
 
 router = APIRouter(prefix="/study", tags=["study"])
 
@@ -76,6 +77,17 @@ def finish(db: Db) -> StudyState:
 @router.post("/restart")
 def restart(db: Db) -> StudyState:
     study.restart(db)
+    return _state(db)
+
+
+@router.get("/questionnaire")
+def questionnaire_form(db: Db) -> QuestionnaireOut:
+    return QuestionnaireOut.model_validate(run(lambda: questionnaire.get(db)))
+
+
+@router.post("/questionnaire")
+def submit_questionnaire(db: Db, body: QuestionnaireAnswers) -> StudyState:
+    run(lambda: questionnaire.submit(db, body.answers))
     return _state(db)
 
 
