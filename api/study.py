@@ -61,6 +61,12 @@ def switch_mode(db: Db, body: ModeRequest) -> StudyState:
     return _state(db)
 
 
+@router.post("/done")
+def done(db: Db) -> StudyState:
+    run(lambda: study.done(db))
+    return _state(db)
+
+
 @router.post("/finish")
 def finish(db: Db) -> StudyState:
     run(lambda: study.finish(db))

@@ -4,20 +4,24 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from config import get_settings
 from db import get_db, init_db
 from main import app
-from services import study
-
-SAMPLE_FILES = {
-    "main.py": {"type": "file", "content": "from app.auth import login\n"},
-    "app/auth.py": {"type": "file", "content": "def login(user, password):\n    ...\n"},
-    "tests": {"type": "folder"},
-}
+from services import content, study
 
 
 @pytest.fixture(autouse=True)
 def fresh_study_memory():
     study.reset_memory()
+
+
+@pytest.fixture(autouse=True)
+def study_dirs(tmp_path, monkeypatch):
+    # Workspaces and snapshots go to a temporary folder, never the real ones.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "workspaces_dir", str(tmp_path / "workspaces"))
+    monkeypatch.setattr(settings, "snapshots_dir", str(tmp_path / "snapshots"))
+    return tmp_path
 
 
 @pytest.fixture
@@ -39,11 +43,22 @@ def client(db):
 
 
 @pytest.fixture
-def pid(client):
-    body = {"name": "secure-login-task", "user_id": "participant-07", "files": SAMPLE_FILES}
-    return client.post("/projects", json=body).json()["id"]
+def enrol(client):
+    # Walks a participant through start -> information -> consent, starting in the given mode.
+    def _enrol(pilot=False, mode="team"):
+        client.post("/study/mode", json={"mode": mode})
+        client.post("/study/start", json={"pilot": pilot})
+        client.post("/study/continue")
+        return client.post("/study/consent", json={"consent_version": content.load("consent")[0]}).json()
+
+    return _enrol
 
 
 @pytest.fixture
-def sid(client, pid):
-    return client.post(f"/projects/{pid}/sessions").json()["id"]
+def team(enrol):
+    return enrol(mode="team")
+
+
+@pytest.fixture
+def single(enrol):
+    return enrol(mode="single")

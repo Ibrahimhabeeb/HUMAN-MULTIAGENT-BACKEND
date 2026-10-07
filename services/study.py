@@ -4,9 +4,12 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models import ConsentRecord, Participant
+from config import get_settings
+from models import ConsentRecord, Participant, Workspace
+from models.common import as_utc, utc_now
+from schemas.security_state import SecurityState
 from schemas.study import Mode, Screen
-from services import content
+from services import content, workspace
 from services.errors import ConflictError
 from services.events import log_event
 
@@ -43,25 +46,133 @@ def require_participant(db: Session) -> Participant:
     return participant
 
 
-def _screen_for(db: Session, participant: Participant) -> Screen:
+# ---- parts (one workspace per mode) ---------------------------------------------------------
+
+
+def _workspaces(db: Session, code: str) -> dict[str, Workspace]:
+    rows = db.scalars(select(Workspace).where(Workspace.participant_code == code).order_by(Workspace.part))
+    return {ws.mode: ws for ws in rows}
+
+
+def _open_mode(db: Session, participant: Participant, mode: Mode) -> Workspace:
+    existing = _workspaces(db, participant.code)
+    if mode in existing:
+        return existing[mode]
+    if any(ws.done_at is None for ws in existing.values()):
+        raise ConflictError("Click Done on the current part before starting the other mode")
+    ws = Workspace(
+        participant_code=participant.code,
+        mode=mode,
+        task_id="A" if not existing else "B",
+        part=len(existing) + 1,
+        security_state=SecurityState().model_dump(mode="json") if mode == "team" else {},
+        notes="",
+    )
+    db.add(ws)
+    db.flush()
+    workspace.create_from_starter(ws)
+    log_event(db, participant.code, "part_started", mode=mode, detail={"part": ws.part, "task_id": ws.task_id})
+    return ws
+
+
+def _seconds_left(ws: Workspace) -> int:
+    elapsed = (utc_now() - as_utc(ws.started_at)).total_seconds()
+    return max(0, int(get_settings().part_time_limit_minutes * 60 - elapsed))
+
+
+def _mark_done(db: Session, ws: Workspace, reason: Literal["done", "time_limit"]) -> None:
+    ws.done_at = utc_now()
+    ws.done_reason = reason
+    saved = workspace.snapshot(ws, reason)
+    seconds = int((ws.done_at - as_utc(ws.started_at)).total_seconds())
+    log_event(
+        db,
+        ws.participant_code,
+        "part_done",
+        mode=ws.mode,
+        detail={"part": ws.part, "task_id": ws.task_id, "reason": reason, "seconds": seconds, "snapshot": saved.name},
+    )
+    db.commit()
+
+
+def _enforce_time_limit(db: Session, ws: Workspace) -> None:
+    # When time runs out the part ends as if Done was clicked, with a final snapshot.
+    if ws.done_at is None and _seconds_left(ws) == 0:
+        _mark_done(db, ws, "time_limit")
+
+
+def current_workspace(db: Session) -> Workspace:
+    participant = require_participant(db)
+    ws = _workspaces(db, participant.code).get(participant.mode)
+    if ws is None:
+        raise ConflictError("No part is open")
+    _enforce_time_limit(db, ws)
+    return ws
+
+
+def editable_workspace(db: Session) -> Workspace:
+    ws = current_workspace(db)
+    if ws.done_at is not None:
+        raise ConflictError("This part is finished and can no longer be changed")
+    return ws
+
+
+def done(db: Session) -> None:
+    _mark_done(db, editable_workspace(db), "done")
+
+
+# ---- which screen to show ---------------------------------------------------------------------
+
+
+def _questionnaire_submitted(db: Session, participant: Participant) -> bool:
+    return False
+
+
+def _screen_for(db: Session, participant: Participant, parts: dict[str, Workspace]) -> Screen:
+    if _questionnaire_submitted(db, participant):
+        return "thank_you"
+    if len(parts) == 2 and all(ws.done_at is not None for ws in parts.values()):
+        return "questionnaire"
+    current = parts.get(participant.mode)
+    if current is not None and current.done_at is not None:
+        return "part_complete"
     return "ide"
 
 
 def get_state(db: Session) -> dict:
     participant = active_participant(db)
-    if participant is not None:
-        return {
-            "screen": _screen_for(db, participant),
-            "mode": participant.mode,
-            "participant": participant.code,
-            "pilot": participant.code.startswith("X"),
-        }
-    if _memory.pending is not None:
-        return {"screen": _memory.pending.screen, "mode": _memory.switch, "pilot": _memory.pending.pilot}
-    return {"screen": "start", "mode": _memory.switch}
+    if participant is None:
+        if _memory.pending is not None:
+            return {"screen": _memory.pending.screen, "mode": _memory.switch, "pilot": _memory.pending.pilot}
+        return {"screen": "start", "mode": _memory.switch}
+
+    parts = _workspaces(db, participant.code)
+    for ws in parts.values():
+        _enforce_time_limit(db, ws)
+    current = parts.get(participant.mode)
+    return {
+        "screen": _screen_for(db, participant, parts),
+        "mode": participant.mode,
+        "participant": participant.code,
+        "pilot": participant.code.startswith("X"),
+        "part": current.part if current else None,
+        "task": {"id": current.task_id, "label": workspace.task_label(current.task_id)} if current else None,
+        "seconds_remaining": _seconds_left(current) if current and current.done_at is None else None,
+        "time_limit_seconds": get_settings().part_time_limit_minutes * 60,
+        "parts": [
+            {
+                "part": ws.part,
+                "mode": ws.mode,
+                "task_id": ws.task_id,
+                "task_label": workspace.task_label(ws.task_id),
+                "done": ws.done_at is not None,
+            }
+            for ws in sorted(parts.values(), key=lambda w: w.part)
+        ],
+    }
 
 
-# ---- before consent (memory only) ---------------------------------------------------
+# ---- before consent (memory only) ---------------------------------------------------------------
 
 
 def start(db: Session, pilot: bool) -> None:
@@ -82,7 +193,7 @@ def decline() -> None:
     _memory.pending = None
 
 
-# ---- consent: the first moment anything is stored -------------------------------------
+# ---- consent: the first moment anything is stored ---------------------------------------------------
 
 
 def _next_code(db: Session, pilot: bool) -> str:
@@ -100,22 +211,27 @@ def give_consent(db: Session, consent_version: str) -> Participant:
     if consent_version != current_version:
         raise ConflictError(f"Consent version {consent_version} is out of date (current: {current_version})")
 
-    participant = Participant(code=_next_code(db, pending.pilot), mode=_memory.switch)
-    db.add(participant)
-    db.add(ConsentRecord(participant_code=participant.code, consent_version=consent_version))
-    log_event(
-        db,
-        participant.code,
-        "participant_created",
-        mode=participant.mode,
-        detail={"pilot": pending.pilot, "consent_version": consent_version},
-    )
-    db.commit()
+    try:
+        participant = Participant(code=_next_code(db, pending.pilot), mode=_memory.switch)
+        db.add(participant)
+        db.add(ConsentRecord(participant_code=participant.code, consent_version=consent_version))
+        log_event(
+            db,
+            participant.code,
+            "participant_created",
+            mode=participant.mode,
+            detail={"pilot": pending.pilot, "consent_version": consent_version},
+        )
+        _open_mode(db, participant, participant.mode)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     _memory.pending = None
     return participant
 
 
-# ---- during the session -------------------------------------------------------------------
+# ---- during the session ------------------------------------------------------------------------------
 
 
 def switch_mode(db: Session, mode: Mode) -> None:
@@ -125,14 +241,19 @@ def switch_mode(db: Session, mode: Mode) -> None:
         return
     if participant.mode == mode:
         return
-    log_event(db, participant.code, "mode_switched", mode=mode, detail={"from": participant.mode, "to": mode})
-    participant.mode = mode
-    db.commit()
+    try:
+        _open_mode(db, participant, mode)
+        log_event(db, participant.code, "mode_switched", mode=mode, detail={"from": participant.mode, "to": mode})
+        participant.mode = mode
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def finish(db: Session) -> None:
     participant = require_participant(db)
-    if _screen_for(db, participant) != "thank_you":
+    if _screen_for(db, participant, _workspaces(db, participant.code)) != "thank_you":
         raise ConflictError("The participant has not reached the end of the study yet")
     participant.status = "complete"
     log_event(db, participant.code, "participant_finished")

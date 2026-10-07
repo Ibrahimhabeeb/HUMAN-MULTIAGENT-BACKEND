@@ -4,6 +4,7 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
+from models import Workspace
 from schemas.security_state import (
     Actor,
     Assumption,
@@ -21,12 +22,9 @@ from schemas.security_state import (
     Severity,
     StateItem,
 )
-from services.errors import NotFoundError, StateRuleError
-from services.projects import get_project, open_session
+from services.errors import ConflictError, NotFoundError, StateRuleError
 
-Category = Literal[
-    "requirements", "assumptions", "risks", "mitigations", "evidence", "questions"
-]
+Category = Literal["requirements", "assumptions", "risks", "mitigations", "evidence", "questions"]
 
 ID_PREFIX: dict[Category, str] = {
     "requirements": "REQ",
@@ -38,19 +36,23 @@ ID_PREFIX: dict[Category, str] = {
 }
 
 
-def get_state(db: Session, project_id: str) -> SecurityState:
-    return SecurityState.model_validate(get_project(db, project_id).security_state)
+def _require_team(ws: Workspace) -> None:
+    if ws.mode != "team":
+        raise ConflictError("The shared security state is only used in team mode")
+
+
+def get_state(ws: Workspace) -> SecurityState:
+    _require_team(ws)
+    return SecurityState.model_validate(ws.security_state)
 
 
 @contextmanager
-def _edit(db: Session, project_id: str, session_id: str) -> Generator[SecurityState]:
-    # Load the project's state, let the caller change it, then save it.
+def _edit(db: Session, ws: Workspace) -> Generator[SecurityState]:
+    # Load the workspace's state, let the caller change it, then save it.
     # If the caller raises (e.g. a broken rule), nothing is saved.
-    project = get_project(db, project_id)
-    open_session(db, project_id, session_id)
-    state = SecurityState.model_validate(project.security_state)
+    state = get_state(ws)
     yield state
-    project.security_state = state.model_dump(mode="json")
+    ws.security_state = state.model_dump(mode="json")
     db.commit()
 
 
@@ -72,42 +74,32 @@ def _find_mitigation(state: SecurityState, mitigation_id: str) -> Mitigation:
     return _find(state, "mitigations", mitigation_id)  # type: ignore[return-value]
 
 
-def get_risk(db: Session, project_id: str, risk_id: str) -> Risk:
-    return _find_risk(get_state(db, project_id), risk_id)
+def get_risk(ws: Workspace, risk_id: str) -> Risk:
+    return _find_risk(get_state(ws), risk_id)
 
 
-def get_mitigation(db: Session, project_id: str, mitigation_id: str) -> Mitigation:
-    return _find_mitigation(get_state(db, project_id), mitigation_id)
+def get_mitigation(ws: Workspace, mitigation_id: str) -> Mitigation:
+    return _find_mitigation(get_state(ws), mitigation_id)
 
 
-def list_risks(
-    db: Session,
-    project_id: str,
-    status: RiskStatus | None = None,
-    severity: Severity | None = None,
-) -> list[Risk]:
+def list_risks(ws: Workspace, status: RiskStatus | None = None, severity: Severity | None = None) -> list[Risk]:
     return [
         r
-        for r in get_state(db, project_id).risks
-        if (status is None or r.status == status)
-        and (severity is None or r.severity == severity)
+        for r in get_state(ws).risks
+        if (status is None or r.status == status) and (severity is None or r.severity == severity)
     ]
 
 
 def list_mitigations(
-    db: Session,
-    project_id: str,
-    risk_id: str | None = None,
-    status: MitigationStatus | None = None,
+    ws: Workspace, risk_id: str | None = None, status: MitigationStatus | None = None
 ) -> list[Mitigation]:
-    state = get_state(db, project_id)
+    state = get_state(ws)
     if risk_id is not None:
         _find_risk(state, risk_id)
     return [
         m
         for m in state.mitigations
-        if (risk_id is None or m.risk_id == risk_id)
-        and (status is None or m.status == status)
+        if (risk_id is None or m.risk_id == risk_id) and (status is None or m.status == status)
     ]
 
 
@@ -123,71 +115,47 @@ def _initial_approval(source: Actor) -> bool | None:
     return True if source == "human" else None
 
 
-def add_requirement(
-    db: Session, project_id: str, session_id: str, text: str, source: Actor
-) -> Requirement:
-    with _edit(db, project_id, session_id) as state:
+def add_requirement(db: Session, ws: Workspace, text: str, source: Actor) -> Requirement:
+    with _edit(db, ws) as state:
         item = Requirement(
-            id=_next_id(state, "requirements"),
-            source=source,
-            human_approved=_initial_approval(source),
-            text=text,
+            id=_next_id(state, "requirements"), source=source, human_approved=_initial_approval(source), text=text
         )
         state.requirements.append(item)
     return item
 
 
-def add_assumption(
-    db: Session, project_id: str, session_id: str, text: str, source: Actor
-) -> Assumption:
-    with _edit(db, project_id, session_id) as state:
+def add_assumption(db: Session, ws: Workspace, text: str, source: Actor) -> Assumption:
+    with _edit(db, ws) as state:
         item = Assumption(
-            id=_next_id(state, "assumptions"),
-            source=source,
-            human_approved=_initial_approval(source),
-            text=text,
+            id=_next_id(state, "assumptions"), source=source, human_approved=_initial_approval(source), text=text
         )
         state.assumptions.append(item)
     return item
 
 
-def add_question(
-    db: Session, project_id: str, session_id: str, text: str, source: Actor
-) -> Question:
-    with _edit(db, project_id, session_id) as state:
+def add_question(db: Session, ws: Workspace, text: str, source: Actor) -> Question:
+    with _edit(db, ws) as state:
         item = Question(
-            id=_next_id(state, "questions"),
-            source=source,
-            human_approved=_initial_approval(source),
-            text=text,
+            id=_next_id(state, "questions"), source=source, human_approved=_initial_approval(source), text=text
         )
         state.questions.append(item)
     return item
 
 
-def add_risk(
-    db: Session, project_id: str, session_id: str, data: RiskCreate, source: Actor
-) -> Risk:
-    with _edit(db, project_id, session_id) as state:
+def add_risk(db: Session, ws: Workspace, data: RiskCreate, source: Actor) -> Risk:
+    with _edit(db, ws) as state:
         risk = Risk(
-            id=_next_id(state, "risks"),
-            source=source,
-            human_approved=_initial_approval(source),
-            **data.model_dump(),
+            id=_next_id(state, "risks"), source=source, human_approved=_initial_approval(source), **data.model_dump()
         )
         state.risks.append(risk)
     return risk
 
 
-def add_mitigation(
-    db: Session, project_id: str, session_id: str, data: MitigationCreate, source: Actor
-) -> Mitigation:
-    with _edit(db, project_id, session_id) as state:
+def add_mitigation(db: Session, ws: Workspace, data: MitigationCreate, source: Actor) -> Mitigation:
+    with _edit(db, ws) as state:
         risk = _find_risk(state, data.risk_id)
         if risk.human_approved is False:
-            raise StateRuleError(
-                f"{risk.id} was rejected, so it cannot have mitigations"
-            )
+            raise StateRuleError(f"{risk.id} was rejected, so it cannot have mitigations")
         mitigation = Mitigation(
             id=_next_id(state, "mitigations"),
             source=source,
@@ -198,17 +166,12 @@ def add_mitigation(
     return mitigation
 
 
-def add_evidence(
-    db: Session, project_id: str, session_id: str, data: EvidenceCreate, source: Actor
-) -> Evidence:
-    with _edit(db, project_id, session_id) as state:
+def add_evidence(db: Session, ws: Workspace, data: EvidenceCreate, source: Actor) -> Evidence:
+    with _edit(db, ws) as state:
         for risk_id in data.risk_ids:
             _find_risk(state, risk_id)
         evidence = Evidence(
-            id=_next_id(state, "evidence"),
-            source=source,
-            human_approved=_initial_approval(source),
-            **data.model_dump(),
+            id=_next_id(state, "evidence"), source=source, human_approved=_initial_approval(source), **data.model_dump()
         )
         state.evidence.append(evidence)
     return evidence
@@ -217,15 +180,8 @@ def add_evidence(
 # ---- the human's decisions -------------------------------------------------------------
 
 
-def set_approval(
-    db: Session,
-    project_id: str,
-    session_id: str,
-    category: Category,
-    item_id: str,
-    approved: bool,
-) -> StateItem:
-    with _edit(db, project_id, session_id) as state:
+def set_approval(db: Session, ws: Workspace, category: Category, item_id: str, approved: bool) -> StateItem:
+    with _edit(db, ws) as state:
         item = _find(state, category, item_id)
         item.human_approved = approved
         if isinstance(item, Mitigation) and not approved:
@@ -234,27 +190,17 @@ def set_approval(
 
 
 def _mitigations_for(state: SecurityState, risk_id: str) -> list[Mitigation]:
-    return [
-        m for m in state.mitigations if m.risk_id == risk_id and m.status != "rejected"
-    ]
+    return [m for m in state.mitigations if m.risk_id == risk_id and m.status != "rejected"]
 
 
 def _has_passing_evidence(state: SecurityState, risk_id: str) -> bool:
-    return any(
-        e.passed and e.human_approved is not False and risk_id in e.risk_ids
-        for e in state.evidence
-    )
+    return any(e.passed and e.human_approved is not False and risk_id in e.risk_ids for e in state.evidence)
 
 
 def set_risk_status(
-    db: Session,
-    project_id: str,
-    session_id: str,
-    risk_id: str,
-    status: RiskStatus,
-    rationale: str | None = None,
+    db: Session, ws: Workspace, risk_id: str, status: RiskStatus, rationale: str | None = None
 ) -> Risk:
-    with _edit(db, project_id, session_id) as state:
+    with _edit(db, ws) as state:
         risk = _find_risk(state, risk_id)
         if risk.human_approved is False:
             raise StateRuleError(f"{risk_id} was rejected, so its status cannot change")
@@ -262,31 +208,23 @@ def set_risk_status(
         if status == "mitigated":
             approved = [m for m in _mitigations_for(state, risk_id) if m.human_approved]
             if not approved:
-                raise StateRuleError(
-                    f"{risk_id} needs an approved mitigation before it can be mitigated"
-                )
+                raise StateRuleError(f"{risk_id} needs an approved mitigation before it can be mitigated")
             for m in approved:
                 if m.status == "proposed":
                     m.status = "implemented"
 
         elif status == "verified":
             if risk.status != "mitigated":
-                raise StateRuleError(
-                    f"{risk_id} must be mitigated before it can be verified"
-                )
+                raise StateRuleError(f"{risk_id} must be mitigated before it can be verified")
             if not _has_passing_evidence(state, risk_id):
-                raise StateRuleError(
-                    f"{risk_id} needs passing evidence before it can be verified"
-                )
+                raise StateRuleError(f"{risk_id} needs passing evidence before it can be verified")
             for m in _mitigations_for(state, risk_id):
                 if m.status == "implemented":
                     m.status = "verified"
 
         elif status == "accepted":
             if not rationale:
-                raise StateRuleError(
-                    "Accepting a risk without fixing it needs a rationale"
-                )
+                raise StateRuleError("Accepting a risk without fixing it needs a rationale")
             risk.rationale = rationale
 
         risk.status = status

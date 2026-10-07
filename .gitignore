@@ -21,6 +21,11 @@ dist/
 htmlcov/
 
 # Runtime data (session logs, sandboxed runs, local databases)
+# Participant workspaces, snapshots and exports are study data: never commit them.
+data/
+workspaces/
+snapshots/
+results/
 logs/
 *.log
 *.sqlite3

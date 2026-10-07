@@ -1,5 +1,6 @@
-from schemas.project import FileNode, FolderNode
-from services.errors import ConflictError, InvalidPathError
+from pathlib import Path
+
+from services.errors import InvalidPathError
 
 MAX_FILES = 1000
 MAX_PATH_LENGTH = 300
@@ -7,8 +8,8 @@ _FORBIDDEN_CHARS = set('\\:*?"<>|')
 
 
 def clean_path(path: str) -> str:
-    # Project paths are relative, "/"-separated, and may never climb out of the project
-    # (no "..", no leading "/"). The runner will write these files to disk later.
+    # Workspace paths are relative, "/"-separated, and may never climb out of the workspace
+    # (no "..", no leading "/").
     p = path.strip()
     if not p or len(p) > MAX_PATH_LENGTH:
         raise InvalidPathError("Path must be 1-300 characters")
@@ -19,25 +20,10 @@ def clean_path(path: str) -> str:
     return p
 
 
-def parents_of(path: str) -> list[str]:
-    parts = path.split("/")
-    return ["/".join(parts[:i]) for i in range(1, len(parts))]
-
-
-def ensure_parents(files: dict, path: str) -> None:
-    for parent in parents_of(path):
-        if files.get(parent, {}).get("type") == "file":
-            raise ConflictError(f"{parent} is a file, so it cannot contain {path}")
-        files.setdefault(parent, {"type": "folder"})
-
-
-def normalise_files(nodes: dict[str, FolderNode | FileNode]) -> dict:
-    if len(nodes) > MAX_FILES:
-        raise InvalidPathError(f"A project can have at most {MAX_FILES} files and folders")
-    files: dict = {}
-    for raw_path, node in nodes.items():
-        path = clean_path(raw_path)
-        files[path] = node.model_dump() 
-    for path in list(files):
-        ensure_parents(files, path)
-    return files
+def resolve_inside(root: Path, path: str) -> Path:
+    # Second line of defence: the resolved location (after links etc.) must still be inside the root.
+    root = root.resolve()
+    target = (root / clean_path(path)).resolve()
+    if not target.is_relative_to(root):
+        raise InvalidPathError(f"Path escapes the workspace: {path!r}")
+    return target

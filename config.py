@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
     checkpoint_path: str = "data/checkpoints.db"
     content_dir: str = "content"
+    starter_dir: str = "starter"
+    workspaces_dir: str = "workspaces"
+    snapshots_dir: str = "snapshots"
+    part_time_limit_minutes: int = 25  # CONFIRM after the pilot
 
 
 @lru_cache

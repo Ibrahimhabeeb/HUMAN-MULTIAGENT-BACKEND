@@ -1,90 +1,152 @@
-from collections.abc import Generator
-from contextlib import contextmanager
+import json
+import shutil
+from collections.abc import Iterator
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from schemas.project import FileNode, FolderNode
+from config import get_settings
+from models import Workspace
 from services.errors import ConflictError, NotFoundError
-from services.paths import MAX_FILES, clean_path, ensure_parents, normalise_files
-from services.projects import get_project, open_session
+from services.events import log_event
+from services.paths import MAX_FILES, clean_path, resolve_inside
+
+# Created by running tests; never shown, copied or snapshotted.
+IGNORED = {"__pycache__", ".pytest_cache"}
+_ignore = shutil.ignore_patterns(*IGNORED)
 
 
-@contextmanager
-def _edit_files(db: Session, project_id: str, session_id: str) -> Generator[dict]:
-    project = get_project(db, project_id)
-    open_session(db, project_id, session_id)
-    files = dict(project.files)
-    yield files
-    if len(files) > MAX_FILES:
-        raise ConflictError(f"A project can have at most {MAX_FILES} files and folders")
-    project.files = files
+def folder(ws: Workspace) -> Path:
+    return Path(get_settings().workspaces_dir) / f"{ws.participant_code}_{ws.task_id}"
+
+
+def task_label(task_id: str) -> str:
+    tasks_file = Path(get_settings().starter_dir) / "tasks.json"
+    tasks = json.loads(tasks_file.read_text(encoding="utf-8")) if tasks_file.is_file() else {}
+    return tasks.get(task_id, {}).get("label", f"task {task_id}")
+
+
+def create_from_starter(ws: Workspace) -> None:
+    source = Path(get_settings().starter_dir) / f"task_{ws.task_id}"
+    if not source.is_dir():
+        raise NotFoundError(f"Starter task {source} is missing")
+    destination = folder(ws)
+    if destination.exists():
+        raise ConflictError(f"Workspace {destination} already exists")
+    shutil.copytree(source, destination, ignore=_ignore)
+
+
+def snapshot(ws: Workspace, reason: str) -> Path:
+    base = Path(get_settings().snapshots_dir) / f"{ws.participant_code}_{ws.task_id}"
+    base.mkdir(parents=True, exist_ok=True)
+    number = sum(1 for p in base.iterdir() if p.is_dir()) + 1
+    destination = base / f"{number:02d}_{reason}"
+    shutil.copytree(folder(ws), destination, ignore=_ignore)
+    return destination
+
+
+# ---- reading ------------------------------------------------------------------------------
+
+
+def _entries(root: Path) -> Iterator[tuple[str, Path]]:
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if not any(part in IGNORED for part in relative.parts):
+            yield relative.as_posix(), path
+
+
+def list_files(ws: Workspace) -> dict:
+    # Flat map, same shape the frontend uses: {"app": {"type": "folder"}, "app/auth.py": {"type": "file", ...}}
+    files: dict = {}
+    for relative, path in _entries(folder(ws)):
+        if path.is_dir():
+            files[relative] = {"type": "folder"}
+        else:
+            files[relative] = {"type": "file", "content": path.read_text(encoding="utf-8", errors="replace")}
+    return files
+
+
+def read_file(ws: Workspace, path: str) -> dict:
+    target = resolve_inside(folder(ws), path)
+    if not target.is_file():
+        raise NotFoundError(f"File {path} not found")
+    return {"type": "file", "content": target.read_text(encoding="utf-8", errors="replace")}
+
+
+# ---- changing (only through an open, unfinished part) ------------------------------------
+
+
+def _check_parents_are_folders(root: Path, target: Path) -> None:
+    for parent in target.parents:
+        if parent == root:
+            return
+        if parent.is_file():
+            raise ConflictError(f"{parent.relative_to(root).as_posix()} is a file, so it cannot contain other files")
+
+
+def _log(db: Session, ws: Workspace, type: str, detail: dict) -> None:
+    log_event(db, ws.participant_code, type, mode=ws.mode, detail=detail)
     db.commit()
 
 
-def list_files(db: Session, project_id: str) -> dict:
-    return get_project(db, project_id).files
+def write_file(db: Session, ws: Workspace, path: str, content: str) -> dict:
+    root = folder(ws).resolve()
+    target = resolve_inside(root, path)
+    if target.is_dir():
+        raise ConflictError(f"{path} is a folder")
+    _check_parents_are_folders(root, target)
+    created = not target.exists()
+    if created and sum(1 for _ in _entries(root)) >= MAX_FILES:
+        raise ConflictError(f"A workspace can have at most {MAX_FILES} files and folders")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8", newline="")
+    _log(db, ws, "file_created" if created else "file_saved", {"path": clean_path(path), "chars": len(content)})
+    return {"type": "file", "content": content}
 
 
-def read_file(db: Session, project_id: str, path: str) -> dict:
-    node = get_project(db, project_id).files.get(clean_path(path))
-    if node is None or node["type"] != "file":
-        raise NotFoundError(f"File {path} not found")
-    return node
+def create_folder(db: Session, ws: Workspace, path: str) -> dict:
+    root = folder(ws).resolve()
+    target = resolve_inside(root, path)
+    if target.exists():
+        raise ConflictError(f"{path} already exists")
+    _check_parents_are_folders(root, target)
+    target.mkdir(parents=True)
+    _log(db, ws, "folder_created", {"path": clean_path(path)})
+    return {"type": "folder"}
 
 
-def write_file(db: Session, project_id: str, session_id: str, path: str, content: str) -> dict:
-    path = clean_path(path)
-    with _edit_files(db, project_id, session_id) as files:
-        if files.get(path, {}).get("type") == "folder":
-            raise ConflictError(f"{path} is a folder")
-        ensure_parents(files, path)
-        files[path] = FileNode(content=content).model_dump()
-    return files[path]
+def delete_path(db: Session, ws: Workspace, path: str) -> None:
+    target = resolve_inside(folder(ws), path)
+    if not target.exists():
+        raise NotFoundError(f"{path} not found")
+    if target.is_dir():
+        shutil.rmtree(target)
+    else:
+        target.unlink()
+    _log(db, ws, "file_deleted", {"path": clean_path(path)})
 
 
-def create_folder(db: Session, project_id: str, session_id: str, path: str) -> dict:
-    path = clean_path(path)
-    with _edit_files(db, project_id, session_id) as files:
-        if path in files:
-            raise ConflictError(f"{path} already exists")
-        ensure_parents(files, path)
-        files[path] = FolderNode().model_dump()
-    return files[path]
+def rename_path(db: Session, ws: Workspace, from_path: str, to_path: str) -> None:
+    root = folder(ws).resolve()
+    source, target = resolve_inside(root, from_path), resolve_inside(root, to_path)
+    if not source.exists():
+        raise NotFoundError(f"{from_path} not found")
+    if target.exists():
+        raise ConflictError(f"{to_path} already exists")
+    if target.is_relative_to(source):
+        raise ConflictError("Cannot move a folder into itself")
+    _check_parents_are_folders(root, target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(target)
+    _log(db, ws, "file_renamed", {"from": clean_path(from_path), "to": clean_path(to_path)})
 
 
-def _is_within(path: str, ancestor: str) -> bool:
-    return path == ancestor or path.startswith(ancestor + "/")
+# ---- notes box (single mode) ---------------------------------------------------------------
 
 
-def delete_path(db: Session, project_id: str, session_id: str, path: str) -> int:
-    path = clean_path(path)
-    with _edit_files(db, project_id, session_id) as files:
-        if path not in files:
-            raise NotFoundError(f"{path} not found")
-        removed = [p for p in files if _is_within(p, path)]
-        for p in removed:
-            del files[p]
-    return len(removed)
-
-
-def rename_path(db: Session, project_id: str, session_id: str, from_path: str, to_path: str) -> None:
-    from_path, to_path = clean_path(from_path), clean_path(to_path)
-    with _edit_files(db, project_id, session_id) as files:
-        if from_path not in files:
-            raise NotFoundError(f"{from_path} not found")
-        if to_path in files:
-            raise ConflictError(f"{to_path} already exists")
-        if _is_within(to_path, from_path):
-            raise ConflictError("Cannot move a folder into itself")
-        moved = {p: files.pop(p) for p in [p for p in files if _is_within(p, from_path)]}
-        for old, node in moved.items():
-            files[to_path + old[len(from_path) :]] = node
-        ensure_parents(files, to_path)
-
-
-def replace_files(db: Session, project_id: str, session_id: str, nodes: dict[str, FolderNode | FileNode]) -> dict:
-    new_files = normalise_files(nodes)
-    with _edit_files(db, project_id, session_id) as files:
-        files.clear()
-        files.update(new_files)
-    return new_files
+def save_notes(db: Session, ws: Workspace, text: str) -> str:
+    if ws.mode != "single":
+        raise ConflictError("The notes box is only used in single mode")
+    ws.notes = text
+    _log(db, ws, "notes_saved", {"chars": len(text)})
+    return text

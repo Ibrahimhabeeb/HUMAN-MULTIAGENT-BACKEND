@@ -18,11 +18,29 @@ class ModeRequest(BaseModel):
     mode: Mode
 
 
+class TaskInfo(BaseModel):
+    id: str
+    label: str
+
+
+class PartInfo(BaseModel):
+    part: int
+    mode: Mode
+    task_id: str
+    task_label: str
+    done: bool
+
+
 class StudyState(BaseModel):
     screen: Screen
     mode: Mode
     participant: str | None = None
     pilot: bool | None = None
+    part: int | None = None
+    task: TaskInfo | None = None
+    seconds_remaining: int | None = None
+    time_limit_seconds: int | None = None
+    parts: list[PartInfo] = []
 
 
 class InformationContent(BaseModel):

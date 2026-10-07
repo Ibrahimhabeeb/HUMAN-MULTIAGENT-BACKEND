@@ -1,9 +1,9 @@
-from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 MAX_FILE_CHARS = 1_000_000
+MAX_NOTES_CHARS = 20_000
 
 
 class FolderNode(BaseModel):
@@ -19,21 +19,6 @@ class FileNode(BaseModel):
 FsNode = Annotated[FolderNode | FileNode, Field(discriminator="type")]
 
 
-class ProjectCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    user_id: str | None = Field(default=None, max_length=100)
-    files: dict[str, FsNode] = {}
-
-
-class ProjectInfo(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    name: str
-    user_id: str | None
-    created_at: datetime
-
-
 class FileWrite(BaseModel):
     content: str = Field(max_length=MAX_FILE_CHARS)
 
@@ -47,5 +32,9 @@ class RenameRequest(BaseModel):
     to_path: str
 
 
-class FilesReplace(BaseModel):
-    files: dict[str, FsNode]
+class NotesWrite(BaseModel):
+    text: str = Field(max_length=MAX_NOTES_CHARS)
+
+
+class Notes(BaseModel):
+    text: str

@@ -20,6 +20,10 @@ dependencies = [
 # The project lives in OneDrive, which rejects hardlinks; copy packages into .venv instead.
 link-mode = "copy"
 
+[tool.ruff]
+# Participant-facing task code, not backend code.
+extend-exclude = ["starter", "workspaces", "snapshots"]
+
 [tool.pytest.ini_options]
 # Let tests import modules from the project root (e.g. `from main import app`).
 pythonpath = ["."]
