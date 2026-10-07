@@ -5,9 +5,10 @@ from sqlalchemy.orm import Session
 
 from api.errors import run
 from db import get_db
+from schemas.runner import RunResult
 from schemas.security_state import Category, HumanCategory, SecurityState
 from schemas.workspace import FileWrite, FolderCreate, Notes, NotesWrite, RenameRequest
-from services import state_service, study, workspace
+from services import runner, state_service, study, workspace
 
 # Everything here acts on the current participant's open part, so no ids are needed in the URLs.
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -97,3 +98,11 @@ def edit_item(db: Db, category: HumanCategory, item_id: str, body: Annotated[dic
 @router.delete("/state/{category}/{item_id}", status_code=204)
 def delete_item(db: Db, category: HumanCategory, item_id: str) -> None:
     run(lambda: state_service.human_delete(db, study.editable_workspace(db), category, item_id))
+
+
+# ---- tests --------------------------------------------------------------------------------------
+
+
+@router.post("/tests/run")
+def run_tests(db: Db) -> RunResult:
+    return RunResult.model_validate(run(lambda: runner.run_tests(db, study.editable_workspace(db))))

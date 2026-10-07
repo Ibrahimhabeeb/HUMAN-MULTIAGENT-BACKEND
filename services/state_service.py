@@ -133,6 +133,12 @@ def link_test(state: SecurityState, path: str, risk_ids: list[str], approval_id:
     return link
 
 
+def add_evidence(state: SecurityState, text: str, passed: bool, risk_ids: list[str]) -> Evidence:
+    evidence = Evidence(id=_new_id(state, "evidence"), source="system", text=text, passed=passed, risk_ids=risk_ids)
+    state.evidence.append(evidence)
+    return evidence
+
+
 # ---- the human edits the state directly (no approval: the human is the authority) -------------
 
 
