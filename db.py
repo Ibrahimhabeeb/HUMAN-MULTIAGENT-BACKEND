@@ -1,11 +1,10 @@
-import os
 from collections.abc import Iterator
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/app.db")
+from config import get_settings
 
 
 class Base(DeclarativeBase):
@@ -20,7 +19,7 @@ def make_engine(url: str) -> Engine:
     return create_engine(url, connect_args=connect_args)
 
 
-engine = make_engine(DATABASE_URL)
+engine = make_engine(get_settings().database_url)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
