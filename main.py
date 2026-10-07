@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.approvals import router as approvals_router
 from api.study import router as study_router
 from api.workspace import router as workspace_router
 from db import init_db
@@ -40,6 +41,7 @@ def health() -> dict[str, str]:
 
 app.include_router(study_router)
 app.include_router(workspace_router)
+app.include_router(approvals_router)
 
 
 if __name__ == "__main__":

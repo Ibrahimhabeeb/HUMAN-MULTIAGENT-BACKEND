@@ -10,5 +10,9 @@ class StateRuleError(ConflictError):
     pass
 
 
-class InvalidPathError(ValueError):
+class InvalidInputError(ValueError):
+    pass
+
+
+class InvalidPathError(InvalidInputError):
     pass

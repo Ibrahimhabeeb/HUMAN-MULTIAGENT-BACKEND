@@ -3,97 +3,93 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Actor = Literal["facilitator", "planner", "threat_modeller", "reviewer", "verifier", "human"]
+Actor = Literal["human", "system", "assistant", "facilitator", "planner", "threat_modeller", "reviewer", "verifier"]
 Severity = Literal["Low", "Medium", "High", "Critical"]
-RiskStatus = Literal["identified", "accepted", "mitigated", "verified", "unresolved"]
-MitigationStatus = Literal["proposed", "implemented", "verified", "rejected"]
-EvidenceKind = Literal["test", "static_analysis", "review", "manual"]
+RiskStatus = Literal["open", "mitigated", "verified", "accepted"]
+MitigationStatus = Literal["planned", "implemented"]
+FindingStatus = Literal["open", "fixed"]
+
+Category = Literal["assumptions", "risks", "mitigations", "findings", "evidence", "tests"]
+HumanCategory = Literal["assumptions", "risks", "mitigations", "findings"]  # the ones the human edits directly
 
 
 def utc_now() -> datetime:
-    
     return datetime.now(UTC)
 
 
-class StateItem(BaseModel):
-    id: str
-    source: Actor
-    timestamp: datetime = Field(default_factory=utc_now)
-    human_approved: bool | None = None  # None = awaiting the human's decision
+# ---- what can be created (by the human directly, or by an approved agent proposal) -----------
 
 
-class Requirement(StateItem):
-    text: str
+class AssumptionCreate(BaseModel):
+    text: str = Field(min_length=3, max_length=1000)
 
 
-class Assumption(StateItem):
-    text: str
-
-
-class Question(StateItem):
-    text: str
-    answer: str | None = None
-
-
-class Risk(StateItem):
-    description: str
-    severity: Severity
-    status: RiskStatus = "identified"
-    cwe: str | None = None
-    owasp: str | None = None
-    stride: str | None = None
-    file: str | None = None
-    line: int | None = None
-    rationale: str | None = None  # why the human accepted the risk instead of fixing it
-
-
-class Mitigation(StateItem):
-    risk_id: str
-    description: str
-    status: MitigationStatus = "proposed"
-
-
-class Evidence(StateItem):
-    text: str
-    kind: EvidenceKind
-    passed: bool
-    risk_ids: list[str] = []
-
-
-class SecurityState(BaseModel):
-    feature: str = "User Login"
-    requirements: list[Requirement] = []
-    assumptions: list[Assumption] = []
-    risks: list[Risk] = []
-    mitigations: list[Mitigation] = []
-    evidence: list[Evidence] = []
-    questions: list[Question] = []
-
-
-# Inputs for creating items. id, timestamp, source and approval are set by the server,
-# never by the caller, so nothing can claim to be the human or approve itself.
 class RiskCreate(BaseModel):
-    description: str = Field(min_length=3, max_length=500)
+    description: str = Field(min_length=3, max_length=1000)
     severity: Severity
     cwe: str | None = Field(default=None, pattern=r"^CWE-\d+$")
-    owasp: str | None = None
-    stride: str | None = None
-    file: str | None = None
-    line: int | None = Field(default=None, ge=1)
+    owasp: str | None = Field(default=None, max_length=100)
+    stride: str | None = Field(default=None, max_length=50)
 
 
 class MitigationCreate(BaseModel):
     risk_id: str
-    description: str = Field(min_length=3, max_length=500)
+    description: str = Field(min_length=3, max_length=1000)
 
 
-class EvidenceCreate(BaseModel):
-    text: str = Field(min_length=3, max_length=500)
-    kind: EvidenceKind
+class FindingCreate(BaseModel):
+    description: str = Field(min_length=3, max_length=1000)
+    severity: Severity
+    file: str | None = Field(default=None, max_length=300)
+    line: int | None = Field(default=None, ge=1)
+    cwe: str | None = Field(default=None, pattern=r"^CWE-\d+$")
+    risk_id: str | None = None  # the risk this finding is an instance of, if any
+
+
+# ---- the items stored in the state ------------------------------------------------------------
+
+
+class StateItem(BaseModel):
+    id: str
+    source: Actor  # who proposed it ("human" if added directly)
+    approval_id: int | None = None  # the approval that put it here, if it came from an agent
+    timestamp: datetime = Field(default_factory=utc_now)
+
+
+class Assumption(StateItem, AssumptionCreate):
+    pass
+
+
+class Risk(StateItem, RiskCreate):
+    status: RiskStatus = "open"
+    rationale: str | None = Field(default=None, max_length=1000)  # why the human accepted the risk instead of fixing it
+
+
+class Mitigation(StateItem, MitigationCreate):
+    status: MitigationStatus = "planned"
+
+
+class Finding(StateItem, FindingCreate):
+    status: FindingStatus = "open"
+
+
+class Evidence(StateItem):
+    text: str
     passed: bool
     risk_ids: list[str] = []
 
 
-class RiskStatusUpdate(BaseModel):
-    status: RiskStatus
-    rationale: str | None = Field(default=None, max_length=500)
+class LinkedTest(StateItem):
+    # An approved test file and the risks it was written for, so test results can become evidence.
+    path: str
+    risk_ids: list[str] = []
+
+
+class SecurityState(BaseModel):
+    counters: dict[str, int] = {}  # last id number used per category, so ids are never reused after a delete
+    assumptions: list[Assumption] = []
+    risks: list[Risk] = []
+    mitigations: list[Mitigation] = []
+    findings: list[Finding] = []
+    evidence: list[Evidence] = []
+    tests: list[LinkedTest] = []

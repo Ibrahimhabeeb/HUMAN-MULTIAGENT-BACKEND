@@ -89,7 +89,8 @@ def _log(db: Session, ws: Workspace, type: str, detail: dict) -> None:
     db.commit()
 
 
-def write_file(db: Session, ws: Workspace, path: str, content: str) -> dict:
+def write_text(ws: Workspace, path: str, content: str) -> bool:
+    """Writes a file into the workspace; returns True if it was created. Does not log or commit."""
     root = folder(ws).resolve()
     target = resolve_inside(root, path)
     if target.is_dir():
@@ -100,6 +101,11 @@ def write_file(db: Session, ws: Workspace, path: str, content: str) -> dict:
         raise ConflictError(f"A workspace can have at most {MAX_FILES} files and folders")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8", newline="")
+    return created
+
+
+def write_file(db: Session, ws: Workspace, path: str, content: str) -> dict:
+    created = write_text(ws, path, content)
     _log(db, ws, "file_created" if created else "file_saved", {"path": clean_path(path), "chars": len(content)})
     return {"type": "file", "content": content}
 

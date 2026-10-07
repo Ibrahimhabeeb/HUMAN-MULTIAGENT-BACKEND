@@ -1,120 +1,76 @@
-import pytest
+from models import Event
 
-from schemas.security_state import EvidenceCreate, MitigationCreate, RiskCreate
-from services import state_service as state
-from services import study
-from services.errors import NotFoundError, StateRuleError
+RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
 
 
-@pytest.fixture
-def agents(db, team):
-    # What the agents will do: call the service directly, under their own name.
-    class Agents:
-        def risk(self, severity="High"):
-            data = RiskCreate(description="SQL injection in login", severity=severity, cwe="CWE-89")
-            return state.add_risk(db, study.editable_workspace(db), data, "threat_modeller")
-
-        def mitigation(self, risk_id="R1"):
-            data = MitigationCreate(risk_id=risk_id, description="Use parameterised queries")
-            return state.add_mitigation(db, study.editable_workspace(db), data, "reviewer")
-
-        def evidence(self, passed=True, risk_ids=("R1",)):
-            data = EvidenceCreate(text="pytest -q", kind="test", passed=passed, risk_ids=list(risk_ids))
-            return state.add_evidence(db, study.editable_workspace(db), data, "verifier")
-
-    return Agents()
+def add(client, category, body):
+    return client.post(f"/workspace/state/{category}", json=body)
 
 
-@pytest.fixture
-def api(client):
-    class Api:
-        def get(self, path):
-            return client.get(f"/workspace{path}")
-
-        def approve(self, category, item_id):
-            return client.post(f"/workspace/state/{category}/{item_id}/approve")
-
-        def reject(self, category, item_id):
-            return client.post(f"/workspace/state/{category}/{item_id}/reject")
-
-        def status(self, risk_id, status, rationale=None):
-            return client.patch(f"/workspace/risks/{risk_id}/status", json={"status": status, "rationale": rationale})
-
-    return Api()
+def test_human_adds_items_directly_without_approval(client, db, team):
+    risk = add(client, "risks", RISK).json()
+    assert (risk["id"], risk["source"], risk["status"], risk["approval_id"]) == ("R1", "human", "open", None)
+    assert client.get("/workspace/state").json()["risks"][0]["id"] == "R1"
+    added = db.query(Event).filter(Event.type == "state_item_added").one()
+    assert added.detail == {"category": "risks", "id": "R1"}
 
 
-def test_agent_items_get_ids_and_wait_for_approval(agents):
-    first, second = agents.risk(), agents.risk()
-    assert (first.id, second.id) == ("R1", "R2")
-    assert first.source == "threat_modeller"
-    assert first.human_approved is None
+def test_all_four_human_categories(client, team):
+    add(client, "risks", RISK)
+    assert add(client, "assumptions", {"text": "Users table is in SQLite"}).json()["id"] == "A1"
+    assert add(client, "mitigations", {"risk_id": "R1", "description": "Parameterised queries"}).json()["id"] == "M1"
+    finding = {"description": "f-string SQL", "severity": "High", "file": "app/auth.py", "line": 5, "risk_id": "R1"}
+    assert add(client, "findings", finding).json()["id"] == "F1"
+
+
+def test_links_must_point_at_existing_risks(client, team):
+    assert add(client, "mitigations", {"risk_id": "R9", "description": "Parameterised queries"}).status_code == 404
+    assert add(client, "findings", {"description": "x injection", "severity": "Low", "risk_id": "R9"}).status_code == 404
+
+
+def test_evidence_and_tests_are_not_added_by_hand(client, team):
+    assert add(client, "evidence", {"text": "it works", "passed": True}).status_code == 422
+    assert add(client, "tests", {"path": "tests/test_x.py"}).status_code == 422
+
+
+def test_invalid_items_are_rejected(client, team):
+    assert add(client, "risks", {"description": "x", "severity": "High"}).status_code == 422
+    assert add(client, "risks", {**RISK, "cwe": "89"}).status_code == 422
+
+
+def test_human_edits_status_and_fields_but_not_identity(client, team):
+    add(client, "risks", RISK)
+    edited = client.patch(
+        "/workspace/state/risks/R1",
+        json={"status": "accepted", "rationale": "Out of scope for the prototype", "id": "R99", "source": "verifier"},
+    ).json()
+    assert (edited["id"], edited["source"], edited["status"]) == ("R1", "human", "accepted")
+    assert edited["rationale"] == "Out of scope for the prototype"
+    assert client.patch("/workspace/state/risks/R1", json={"status": "done"}).status_code == 422
+
+
+def test_delete_keeps_links_consistent_and_ids_are_never_reused(client, team):
+    add(client, "risks", RISK)
+    add(client, "mitigations", {"risk_id": "R1", "description": "Parameterised queries"})
+    assert client.delete("/workspace/state/risks/R1").status_code == 409
+    assert client.delete("/workspace/state/mitigations/M1").status_code == 204
+    assert client.delete("/workspace/state/risks/R1").status_code == 204
+    assert add(client, "risks", RISK).json()["id"] == "R2"
+
+
+def test_read_one_category_or_item(client, team):
+    add(client, "risks", RISK)
+    assert [r["id"] for r in client.get("/workspace/state/risks").json()] == ["R1"]
+    assert client.get("/workspace/state/risks/R1").json()["cwe"] == "CWE-89"
+    assert client.get("/workspace/state/risks/R7").status_code == 404
 
 
 def test_state_is_team_mode_only(client, single):
     assert client.get("/workspace/state").status_code == 409
+    assert add(client, "risks", RISK).status_code == 409
 
 
-def test_each_part_has_its_own_state(client, db, agents, api):
-    agents.risk()
+def test_finished_part_cannot_be_edited(client, team):
     client.post("/study/done")
-    client.post("/study/mode", json={"mode": "single"})
-    client.post("/study/mode", json={"mode": "team"})
-    assert api.get("/risks").json()[0]["id"] == "R1"
-
-
-def test_read_and_filter(agents, api):
-    agents.risk(severity="High")
-    agents.risk(severity="Low")
-    api.approve("risks", "R2")
-    api.status("R2", "accepted", "Low impact for the prototype")
-
-    assert api.get("/risks/R1").json()["cwe"] == "CWE-89"
-    assert api.get("/risks/R9").status_code == 404
-    assert [r["id"] for r in api.get("/risks?severity=High").json()] == ["R1"]
-    assert [r["id"] for r in api.get("/risks?status=accepted").json()] == ["R2"]
-
-
-def test_approve_and_reject(agents, api):
-    agents.risk()
-    agents.risk()
-    approved = api.approve("risks", "R1").json()
-    assert approved["human_approved"] is True and approved["description"] == "SQL injection in login"
-    assert api.reject("risks", "R2").json()["human_approved"] is False
-    assert api.approve("risks", "R9").status_code == 404
-    assert api.approve("secrets", "R1").status_code == 422
-
-
-def test_mitigation_rules(agents, api):
-    with pytest.raises(NotFoundError):
-        agents.mitigation("R7")
-    agents.risk()
-    api.reject("risks", "R1")
-    with pytest.raises(StateRuleError):
-        agents.mitigation("R1")
-
-
-def test_full_path_to_verified(agents, api):
-    agents.risk()
-    agents.mitigation()
-    assert api.status("R1", "mitigated").status_code == 409  # mitigation not approved yet
-
-    api.approve("mitigations", "M1")
-    assert api.status("R1", "mitigated").json()["status"] == "mitigated"
-    assert api.get("/mitigations/M1").json()["status"] == "implemented"
-
-    assert api.status("R1", "verified").status_code == 409  # no evidence yet
-    agents.evidence(passed=False)
-    assert api.status("R1", "verified").status_code == 409  # only failing evidence
-    agents.evidence(passed=True)
-    assert api.status("R1", "verified").json()["status"] == "verified"
-
-
-def test_accepting_needs_a_rationale(agents, api):
-    agents.risk()
-    assert api.status("R1", "accepted").status_code == 409
-    assert api.status("R1", "accepted", "Out of scope").json()["rationale"] == "Out of scope"
-
-
-def test_evidence_must_reference_existing_risks(agents):
-    with pytest.raises(NotFoundError):
-        agents.evidence(risk_ids=["R5"])
+    assert add(client, "risks", RISK).status_code == 409
+    assert client.get("/workspace/state").status_code == 200

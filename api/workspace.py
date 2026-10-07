@@ -1,24 +1,13 @@
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 
 from api.errors import run
 from db import get_db
-from schemas.security_state import (
-    Mitigation,
-    MitigationStatus,
-    Risk,
-    RiskStatus,
-    RiskStatusUpdate,
-    SecurityState,
-    Severity,
-    StateItem,
-)
+from schemas.security_state import Category, HumanCategory, SecurityState
 from schemas.workspace import FileWrite, FolderCreate, Notes, NotesWrite, RenameRequest
-from services import state_service as state
-from services import study, workspace
-from services.state_service import Category
+from services import state_service, study, workspace
 
 # Everything here acts on the current participant's open part, so no ids are needed in the URLs.
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -73,46 +62,38 @@ def save_notes(db: Db, body: NotesWrite) -> Notes:
 
 
 # ---- shared security state (team mode) ------------------------------------------------------------
+# Items are returned as plain dicts so each keeps all of its own fields.
 
 
 @router.get("/state")
 def get_state(db: Db) -> SecurityState:
-    return run(lambda: state.get_state(study.current_workspace(db)))
+    return run(lambda: state_service.load(study.current_workspace(db)))
 
 
-@router.get("/risks")
-def list_risks(db: Db, status: RiskStatus | None = None, severity: Severity | None = None) -> list[Risk]:
-    return run(lambda: state.list_risks(study.current_workspace(db), status, severity))
+@router.get("/state/{category}")
+def list_items(db: Db, category: Category) -> list[dict]:
+    state = run(lambda: state_service.load(study.current_workspace(db)))
+    return [item.model_dump(mode="json") for item in getattr(state, category)]
 
 
-@router.get("/risks/{risk_id}")
-def get_risk(db: Db, risk_id: str) -> Risk:
-    return run(lambda: state.get_risk(study.current_workspace(db), risk_id))
+@router.get("/state/{category}/{item_id}")
+def get_item(db: Db, category: Category, item_id: str) -> dict:
+    state = run(lambda: state_service.load(study.current_workspace(db)))
+    return run(lambda: state_service.find(state, category, item_id)).model_dump(mode="json")
 
 
-@router.patch("/risks/{risk_id}/status")
-def set_risk_status(db: Db, risk_id: str, body: RiskStatusUpdate) -> Risk:
-    return run(lambda: state.set_risk_status(db, study.editable_workspace(db), risk_id, body.status, body.rationale))
-
-
-@router.get("/mitigations")
-def list_mitigations(db: Db, risk_id: str | None = None, status: MitigationStatus | None = None) -> list[Mitigation]:
-    return run(lambda: state.list_mitigations(study.current_workspace(db), risk_id, status))
-
-
-@router.get("/mitigations/{mitigation_id}")
-def get_mitigation(db: Db, mitigation_id: str) -> Mitigation:
-    return run(lambda: state.get_mitigation(study.current_workspace(db), mitigation_id))
-
-
-# Returned as a plain dict so each item keeps all of its own fields instead of only the shared ones.
-@router.post("/state/{category}/{item_id}/approve")
-def approve(db: Db, category: Category, item_id: str) -> dict:
-    item: StateItem = run(lambda: state.set_approval(db, study.editable_workspace(db), category, item_id, True))
+@router.post("/state/{category}", status_code=201)
+def add_item(db: Db, category: HumanCategory, body: Annotated[dict[str, Any], Body()]) -> dict:
+    item = run(lambda: state_service.human_add(db, study.editable_workspace(db), category, body))
     return item.model_dump(mode="json")
 
 
-@router.post("/state/{category}/{item_id}/reject")
-def reject(db: Db, category: Category, item_id: str) -> dict:
-    item: StateItem = run(lambda: state.set_approval(db, study.editable_workspace(db), category, item_id, False))
+@router.patch("/state/{category}/{item_id}")
+def edit_item(db: Db, category: HumanCategory, item_id: str, body: Annotated[dict[str, Any], Body()]) -> dict:
+    item = run(lambda: state_service.human_edit(db, study.editable_workspace(db), category, item_id, body))
     return item.model_dump(mode="json")
+
+
+@router.delete("/state/{category}/{item_id}", status_code=204)
+def delete_item(db: Db, category: HumanCategory, item_id: str) -> None:
+    run(lambda: state_service.human_delete(db, study.editable_workspace(db), category, item_id))
