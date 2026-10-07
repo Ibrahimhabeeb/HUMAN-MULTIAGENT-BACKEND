@@ -6,12 +6,18 @@ from sqlalchemy.pool import StaticPool
 
 from db import get_db, init_db
 from main import app
+from services import study
 
 SAMPLE_FILES = {
     "main.py": {"type": "file", "content": "from app.auth import login\n"},
     "app/auth.py": {"type": "file", "content": "def login(user, password):\n    ...\n"},
     "tests": {"type": "folder"},
 }
+
+
+@pytest.fixture(autouse=True)
+def fresh_study_memory():
+    study.reset_memory()
 
 
 @pytest.fixture

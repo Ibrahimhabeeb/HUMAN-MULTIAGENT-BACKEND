@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     database_url: str = "sqlite:///./data/app.db"
     checkpoint_path: str = "data/checkpoints.db"
+    content_dir: str = "content"
 
 
 @lru_cache

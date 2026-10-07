@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.projects import router as projects_router
 from api.sessions import router as sessions_router
+from api.study import router as study_router
 from db import init_db
 
 
@@ -38,6 +39,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(study_router)
 app.include_router(projects_router)
 app.include_router(sessions_router)
 
