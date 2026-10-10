@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from agents.context import Proposal
-from agents.roles import THREADS
+from agents.roles import NAMES, THREADS
 from models import Approval, Message, Workspace
 from services import approvals
 from services.errors import NotFoundError
@@ -43,10 +43,19 @@ def all_threads(db: Session, ws: Workspace) -> dict[str, list[Message]]:
     return {thread: thread_messages(db, ws, thread) for thread in THREADS[ws.mode]}
 
 
-def as_langchain(messages: list[Message]) -> list[BaseMessage]:
-    # "system" messages are notices for the human and never go to the model.
-    recent = [m for m in messages if m.role != "system"][-MAX_HISTORY:]
-    return [HumanMessage(m.content) if m.role == "human" else AIMessage(m.content) for m in recent]
+def as_langchain(messages: list[Message], me: str | None = None) -> list[BaseMessage]:
+    # "system" messages are notices for the human and never go to the model. In the team conversation,
+    # another agent's message starts with its name, so each agent can tell who said what.
+    result: list[BaseMessage] = []
+    for m in [m for m in messages if m.role != "system"][-MAX_HISTORY:]:
+        agent = m.data.get("agent")
+        if m.role == "human":
+            result.append(HumanMessage(m.content))
+        elif agent and agent != me:
+            result.append(AIMessage(f"[{NAMES[agent]}] {m.content}"))
+        else:
+            result.append(AIMessage(m.content))
+    return result
 
 
 def save_proposals(db: Session, ws: Workspace, proposals: list[Proposal]) -> list[Approval]:

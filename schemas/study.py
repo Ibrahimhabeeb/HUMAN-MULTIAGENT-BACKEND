@@ -38,8 +38,6 @@ class StudyState(BaseModel):
     pilot: bool | None = None
     part: int | None = None
     task: TaskInfo | None = None
-    seconds_remaining: int | None = None
-    time_limit_seconds: int | None = None
     parts: list[PartInfo] = []
 
 

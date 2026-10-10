@@ -23,7 +23,6 @@ Optional settings, in `.env` or as environment variables:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `PART_TIME_LIMIT_MINUTES` | `25` | Time limit for each part (confirm after the pilot) |
 | `TEST_TIMEOUT_SECONDS` | `60` | How long one click on Run tests may take |
 | `DATABASE_URL` | `sqlite:///./data/app.db` | Where everything except code is stored |
 
@@ -66,7 +65,7 @@ Everything happens in the browser. The frontend asks `GET /study/state` which sc
 5. **Questionnaire**: `GET /study/questionnaire`, then `POST /study/questionnaire`.
 6. **Thank you**, then **Finish**: `POST /study/finish`.
 
-A part also ends when its time runs out, as if Done was clicked. **Restart for new participant**
+**Restart for new participant**
 (`POST /study/restart`) ends the session at any point and keeps the data, marking the participant incomplete.
 Each participant starts in the mode the previous one ended in, so the starting mode alternates.
 
@@ -75,8 +74,8 @@ During a part:
 | | Endpoints |
 |---|---|
 | Files | `GET /workspace/files`, `GET`/`PUT`/`DELETE /workspace/files/{path}`, `POST /workspace/folders`, `POST /workspace/files/rename` |
-| Chat | `GET /chat`, `GET`/`POST /chat/{thread}`, `POST /chat/consult/{agent}` (team mode) |
-| Ready for review | `POST /chat/review` |
+| Chat | `GET /chat`, `GET`/`POST /chat/{thread}` (`team` or `assistant`), `POST /chat/next` (team mode: the next agent on the route answers) |
+| Done, review my code | `POST /chat/review` |
 | Run tests | `POST /workspace/tests/run` |
 | Approvals | `GET /approvals`, `POST /approvals/{id}/decide` |
 | Shared security state (team mode) | `GET /workspace/state`, `POST`/`PATCH`/`DELETE /workspace/state/{category}/...` |

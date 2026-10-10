@@ -40,7 +40,6 @@ def test_declining_returns_to_start_and_stores_nothing(client, db):
 def test_consent_creates_participant_and_opens_part_1(team, db):
     assert team["participant"] == "P01"
     assert (team["screen"], team["part"], team["task"]["id"]) == ("ide", 1, "A")
-    assert team["seconds_remaining"] > 0
     assert db.get(ConsentRecord, "P01").consent_version == consent_version()
     assert event_types(db) == ["participant_created", "part_started"]
 
@@ -137,14 +136,6 @@ def test_done_saves_a_snapshot(client, team):
 def test_done_twice_is_refused(client, team):
     client.post("/study/done")
     assert client.post("/study/done").status_code == 409
-
-
-def test_time_limit_ends_the_part_with_a_snapshot(client, db, team, monkeypatch):
-    monkeypatch.setattr(get_settings(), "part_time_limit_minutes", 0)
-    assert client.get("/study/state").json()["screen"] == "part_complete"
-    ws = db.query(Workspace).one()
-    assert ws.done_reason == "time_limit"
-    assert (Path(get_settings().snapshots_dir) / "P01_A" / "01_time_limit").is_dir()
 
 
 def test_next_participant_starts_in_the_mode_the_last_one_ended_in(client, team):

@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     starter_dir: str = "starter"
     workspaces_dir: str = "workspaces"
     snapshots_dir: str = "snapshots"
-    part_time_limit_minutes: int = 25  # CONFIRM after the pilot
     test_timeout_seconds: int = 60
 
 

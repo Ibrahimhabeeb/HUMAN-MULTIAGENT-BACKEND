@@ -13,7 +13,7 @@ This study compares two ways of working with AI while writing code: with a **tea
 
 ## What will I do?
 You will complete two short programming tasks in a code editor in this browser: one with the agent team and one
-with the single assistant. Each part has a time limit (about 25 minutes, CONFIRM). Afterwards you will answer a short
+with the single assistant. Afterwards you will answer a short
 questionnaire about your experience. The whole session takes about one hour (CONFIRM).
 
 ## What information is collected?

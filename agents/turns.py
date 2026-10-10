@@ -84,9 +84,3 @@ def agent_turn(
 def log_message_sent(db: Session, ws: Workspace, thread: str, content: str) -> None:
     log_event(db, ws.participant_code, "message_sent", mode=ws.mode, detail={"thread": thread, "chars": len(content)})
 
-
-def merge(*results: dict) -> dict:
-    return {
-        "messages": [m for r in results for m in r["messages"]],
-        "approvals": [a for r in results for a in r["approvals"]],
-    }

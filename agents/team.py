@@ -1,4 +1,3 @@
-import json
 import time
 
 from langchain_core.messages import HumanMessage
@@ -8,103 +7,27 @@ from agents import runtime
 from agents.context import AgentContext, build_context, code_listing
 from agents.roles import (
     FACILITATOR_PROMPT,
+    FIRST_ROUTE,
+    NAMES,
     REVIEW_MESSAGE,
-    ROLE_PROMPTS,
-    SHARED_RULES,
-    SPECIALISTS,
+    REVIEW_ROUTE,
     Specialist,
+    team_prompt,
 )
+from agents.runtime import RouteDecision
 from agents.tools import make_tools
-from agents.turns import agent_turn, log_message_sent, merge, model_call, save_turn
+from agents.turns import log_message_sent, model_call
 from models import Message, Workspace
 from schemas.security_state import SecurityState
-from services import approvals, chat, state_service, workspace
+from services import chat, workspace
+from services.errors import ConflictError
 from services.events import log_event
 
-NO_RISKS_NOTICE = (
-    "The Verifier writes security tests from approved risks. There are none yet, so it had nothing to test."
-)
-
-
-def _prompt(role: Specialist) -> str:
-    return ROLE_PROMPTS[role] + SHARED_RULES
-
-
-def _state_summary(db: Session, ws: Workspace) -> str:
-    state = state_service.load(ws)
-    return json.dumps(
-        {
-            "risks": [{"id": r.id, "status": r.status} for r in state.risks],
-            "open_findings": [f.id for f in state.findings if f.status == "open"],
-            "mitigations": len(state.mitigations),
-            "tests": len(state.tests),
-            "proposals_waiting_for_approval": len(approvals.list_approvals(db, ws, "pending")),
-        }
-    )
-
-
-# ---- the Facilitator suggests; the human decides whom to consult -----------------------------
-
-
-def _ask_facilitator(db: Session, ws: Workspace, content: str) -> dict:
-    consulted = [role for role in SPECIALISTS if chat.thread_messages(db, ws, role)]
-    prompt = FACILITATOR_PROMPT.format(consulted=", ".join(consulted) or "none", state_summary=_state_summary(db, ws))
-    messages = [*chat.as_langchain(chat.thread_messages(db, ws, "facilitator")), HumanMessage(content)]
-    started = time.monotonic()
-    with model_call(db, ws, "facilitator"):
-        reply = runtime.facilitate(prompt, messages)
-    seconds = round(time.monotonic() - started, 1)
-
-    suggestions: dict[str, dict] = {}
-    for suggestion in reply.suggestions:
-        suggestions.setdefault(suggestion.agent, suggestion.model_dump())  # one button per agent
-    human = chat.add_message(db, ws, "facilitator", "human", content)
-    agent = chat.add_message(db, ws, "facilitator", "agent", reply.message, {"suggestions": list(suggestions.values())})
-    log_event(
-        db,
-        ws.participant_code,
-        "facilitator_suggested",
-        actor="facilitator",
-        mode=ws.mode,
-        detail={"agents": list(suggestions), "seconds": seconds},
-    )
-    db.commit()
-    return {"messages": [human, agent], "approvals": []}
-
-
-def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
-    chat.require_thread(ws, thread)
-    log_message_sent(db, ws, thread, content)
-    if thread == "facilitator":
-        return _ask_facilitator(db, ws, content)
-    return agent_turn(db, ws, thread, _prompt(thread), build_context(ws), content)  # type: ignore[arg-type]
-
-
-def _suggested_reason(facilitator: list[Message], agent: Specialist) -> str | None:
-    # Why the Facilitator's latest reply suggested this agent, if it did.
-    replies = [m for m in facilitator if m.role == "agent"]
-    suggestions = replies[-1].data.get("suggestions", []) if replies else []
-    return next((s["reason"] for s in suggestions if s["agent"] == agent), None)
-
-
-def consult(db: Session, ws: Workspace, agent: Specialist) -> dict:
-    # The human clicked to consult an agent: one the Facilitator suggested, or their own choice.
-    state_service.require_team(ws)
-    facilitator = chat.thread_messages(db, ws, "facilitator")
-    told = "\n\n".join(m.content for m in facilitator if m.role == "human")
-    reason = _suggested_reason(facilitator, agent)
-    text = "The developer is consulting you."
-    if told:
-        text += f"\n\nWhat they told the Facilitator:\n{told[-4000:]}"
-    if reason:
-        text += f"\n\nThe Facilitator suggested you because: {reason}"
-    log_event(
-        db, ws.participant_code, "agent_consulted", mode=ws.mode, detail={"agent": agent, "suggested": reason is not None}
-    )
-    return agent_turn(db, ws, agent, _prompt(agent), build_context(ws), text, data={"consult": True})
-
-
-# ---- Ready for review: the Reviewer and the Verifier in parallel -------------------------------
+# Team mode is one conversation. Each developer message carries a route: the agents that answer it, in order.
+# Every call answers with one agent; when more are on the route, the frontend asks for the next one (next_reply),
+# so the chat shows each answer as soon as it is ready.
+THREAD = "team"
+NO_RISKS_NOTICE = "The Test/Verifier writes security tests from approved risks. There are none yet, so it had nothing to test."
 
 
 def _risk_list(state: SecurityState) -> str:
@@ -116,47 +39,123 @@ def _risk_list(state: SecurityState) -> str:
     return "\n".join(lines)
 
 
-def review(db: Session, ws: Workspace) -> dict:
-    # Each agent gets its own context, so their proposals stay apart while they run side by side.
-    reviewer_ctx, verifier_ctx = build_context(ws), build_context(ws)
-    state = verifier_ctx.state or SecurityState()
-    review_text = f"{REVIEW_MESSAGE}\n\n{code_listing(reviewer_ctx.files)}"
-    verifier_text = "The developer clicked Ready for review. Write security tests for the approved risks:\n"
-    verifier_text += _risk_list(state)
-    seconds: dict[str, float] = {}
+def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
+    # The latest developer message, and the first agent on its route that hasn't answered it yet.
+    asked = next((m for m in reversed(messages) if m.role == "human"), None)
+    if asked is None:
+        return None
+    answered = {m.data.get("agent") for m in messages if m.data.get("reply_to") == asked.id}
+    agent = next((a for a in asked.data.get("route", []) if a not in answered), None)
+    return (asked, agent) if agent else None
 
-    def job(role: Specialist, ctx: AgentContext, text: str):
-        tools = make_tools(ctx, role)
-        messages = [*chat.as_langchain(chat.thread_messages(db, ws, role)), HumanMessage(text)]
 
-        def call() -> str:
-            started = time.monotonic()
-            reply = runtime.run_agent(_prompt(role), tools, messages)
-            seconds[role] = time.monotonic() - started
-            return reply
+def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: AgentContext) -> str:
+    # What the agent is given: the developer's message and what the others already answered; the Code Reviewer
+    # always gets the current code, the Test/Verifier the approved risks.
+    review = "snapshot" in asked.data
+    if agent == "verifier":
+        risks = _risk_list(ctx.state or SecurityState()) or "(none yet)"
+        if review:
+            return f"The developer asked for a review. Write security tests for the approved risks:\n{risks}"
+        return f"{asked.content}\n\nThe approved risks:\n{risks}"
+    if agent == "reviewer" and review:
+        return f"{REVIEW_MESSAGE}\n\n{code_listing(ctx.files)}"
 
-        return call
+    text = asked.content
+    for reply in replies:
+        text += f"\n\n[{NAMES[reply.data['agent']]} already answered this]\n{reply.content}"
+    if agent == "reviewer":
+        text += f"\n\nThe developer's current code:\n{code_listing(ctx.files)}"
+    return text
 
-    jobs = {"reviewer": job("reviewer", reviewer_ctx, review_text)}
-    if state.risks:  # tests are written from approved risks; with none, the Verifier has nothing to work from
-        jobs["verifier"] = job("verifier", verifier_ctx, verifier_text)
 
-    snapshot = workspace.snapshot(ws, "review")
-    data = {"snapshot": snapshot.name}
-    log_event(db, ws.participant_code, "ready_for_review", mode=ws.mode, detail={**data, "agents": list(jobs)})
-    with model_call(db, ws, *jobs):
-        replies = runtime.run_parallel(jobs)
+def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> dict:
+    messages = chat.thread_messages(db, ws, THREAD)
+    replies = [m for m in messages if m.data.get("reply_to") == asked.id and m.role == "agent"]
+    reply_data = {"agent": agent, "reply_to": asked.id}
+    ctx = build_context(ws)
 
-    # The code listing isn't kept in the chat; the snapshot holds exactly what was reviewed.
-    reviewed = save_turn(
-        db, ws, "reviewer", REVIEW_MESSAGE, replies["reviewer"], reviewer_ctx, seconds["reviewer"], data
-    )
-    if "verifier" in replies:
-        verified = save_turn(
-            db, ws, "verifier", verifier_text, replies["verifier"], verifier_ctx, seconds["verifier"], data
-        )
-    else:
-        notice = chat.add_message(db, ws, "verifier", "system", NO_RISKS_NOTICE, data)
+    if agent == "verifier" and not (ctx.state and ctx.state.risks):
+        notice = chat.add_message(db, ws, THREAD, "system", NO_RISKS_NOTICE, reply_data)
         db.commit()
-        verified = {"messages": [notice], "approvals": []}
-    return merge(reviewed, verified)
+        return {"messages": [notice], "approvals": [], "next": next_agent(db, ws)}
+
+    history = chat.as_langchain([m for m in messages if m.id < asked.id], me=agent)
+    prompt = [*history, HumanMessage(_input(agent, asked, replies, ctx))]
+    tools = make_tools(ctx, agent)
+    started = time.monotonic()
+    with model_call(db, ws, agent):
+        reply = runtime.run_agent(team_prompt(agent), tools, prompt)
+
+    saved = chat.save_proposals(db, ws, ctx.proposals)
+    message = chat.add_message(db, ws, THREAD, "agent", reply, {**reply_data, "approval_ids": [a.id for a in saved]})
+    log_event(
+        db,
+        ws.participant_code,
+        "agent_replied",
+        actor=agent,
+        mode=ws.mode,
+        detail={"seconds": round(time.monotonic() - started, 1), "proposals": len(saved)},
+    )
+    db.commit()
+    return {"messages": [message], "approvals": saved, "next": next_agent(db, ws)}
+
+
+def _route(db: Session, ws: Workspace, messages: list[Message], content: str) -> RouteDecision:
+    reviewed = any("snapshot" in m.data for m in messages)
+    stage = "The code has been reviewed at least once." if reviewed else "The code has not been reviewed yet."
+    with model_call(db, ws, "facilitator"):
+        decision = runtime.route(
+            FACILITATOR_PROMPT.format(stage=stage), [*chat.as_langchain(messages), HumanMessage(content)]
+        )
+    log_event(
+        db,
+        ws.participant_code,
+        "message_routed",
+        actor="facilitator",
+        mode=ws.mode,
+        detail={"agent": decision.agent, "reason": decision.reason},
+    )
+    return decision
+
+
+def next_agent(db: Session, ws: Workspace) -> Specialist | None:
+    waiting = _waiting(chat.thread_messages(db, ws, THREAD))
+    return waiting[1] if waiting else None
+
+
+def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
+    chat.require_thread(ws, thread)
+    log_message_sent(db, ws, thread, content)
+    messages = chat.thread_messages(db, ws, THREAD)
+    if any(m.role == "human" for m in messages):
+        decision = _route(db, ws, messages, content)
+        data = {"route": [decision.agent], "reason": decision.reason}
+    else:
+        data = {"route": list(FIRST_ROUTE)}  # telling the team what you want to build: steps, then threats
+
+    # Saved before any agent answers, so if one fails the developer can retry with next_reply.
+    asked = chat.add_message(db, ws, THREAD, "human", content, data)
+    db.commit()
+    result = _answer(db, ws, asked, data["route"][0])
+    return {**result, "messages": [asked, *result["messages"]]}
+
+
+def review(db: Session, ws: Workspace) -> dict:
+    snapshot = workspace.snapshot(ws, "review")
+    log_event(db, ws.participant_code, "ready_for_review", mode=ws.mode, detail={"snapshot": snapshot.name})
+    data = {"snapshot": snapshot.name, "route": list(REVIEW_ROUTE)}
+    # The code listing isn't kept in the chat; the snapshot holds exactly what was reviewed.
+    asked = chat.add_message(db, ws, THREAD, "human", REVIEW_MESSAGE, data)
+    db.commit()
+    result = _answer(db, ws, asked, "reviewer")
+    return {**result, "messages": [asked, *result["messages"]]}
+
+
+def next_reply(db: Session, ws: Workspace) -> dict:
+    if ws.mode != "team":
+        raise ConflictError("Only the agent team has more than one agent to answer")
+    waiting = _waiting(chat.thread_messages(db, ws, THREAD))
+    if waiting is None:
+        raise ConflictError("No agent is waiting to answer")
+    return _answer(db, ws, *waiting)

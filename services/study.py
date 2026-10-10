@@ -4,7 +4,6 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from config import get_settings
 from models import ConsentRecord, Participant, SurveyResponse, Workspace
 from models.common import as_utc, utc_now
 from schemas.security_state import SecurityState
@@ -75,30 +74,19 @@ def _open_mode(db: Session, participant: Participant, mode: Mode) -> Workspace:
     return ws
 
 
-def _seconds_left(ws: Workspace) -> int:
-    elapsed = (utc_now() - as_utc(ws.started_at)).total_seconds()
-    return max(0, int(get_settings().part_time_limit_minutes * 60 - elapsed))
-
-
-def _mark_done(db: Session, ws: Workspace, reason: Literal["done", "time_limit"]) -> None:
+def _mark_done(db: Session, ws: Workspace) -> None:
     ws.done_at = utc_now()
-    ws.done_reason = reason
-    saved = workspace.snapshot(ws, reason)
+    ws.done_reason = "done"
+    saved = workspace.snapshot(ws, "done")
     seconds = int((ws.done_at - as_utc(ws.started_at)).total_seconds())
     log_event(
         db,
         ws.participant_code,
         "part_done",
         mode=ws.mode,
-        detail={"part": ws.part, "task_id": ws.task_id, "reason": reason, "seconds": seconds, "snapshot": saved.name},
+        detail={"part": ws.part, "task_id": ws.task_id, "seconds": seconds, "snapshot": saved.name},
     )
     db.commit()
-
-
-def _enforce_time_limit(db: Session, ws: Workspace) -> None:
-    # When time runs out the part ends as if Done was clicked, with a final snapshot.
-    if ws.done_at is None and _seconds_left(ws) == 0:
-        _mark_done(db, ws, "time_limit")
 
 
 def current_workspace(db: Session) -> Workspace:
@@ -106,7 +94,6 @@ def current_workspace(db: Session) -> Workspace:
     ws = _workspaces(db, participant.code).get(participant.mode)
     if ws is None:
         raise ConflictError("No part is open")
-    _enforce_time_limit(db, ws)
     return ws
 
 
@@ -118,7 +105,7 @@ def editable_workspace(db: Session) -> Workspace:
 
 
 def done(db: Session) -> None:
-    _mark_done(db, editable_workspace(db), "done")
+    _mark_done(db, editable_workspace(db))
 
 
 # ---- which screen to show ---------------------------------------------------------------------
@@ -148,8 +135,6 @@ def get_state(db: Session) -> dict:
         return {"screen": "start", "mode": _memory.switch}
 
     parts = _workspaces(db, participant.code)
-    for ws in parts.values():
-        _enforce_time_limit(db, ws)
     current = parts.get(participant.mode)
     return {
         "screen": _screen_for(db, participant, parts),
@@ -158,8 +143,6 @@ def get_state(db: Session) -> dict:
         "pilot": participant.code.startswith("X"),
         "part": current.part if current else None,
         "task": {"id": current.task_id, "label": workspace.task_label(current.task_id)} if current else None,
-        "seconds_remaining": _seconds_left(current) if current and current.done_at is None else None,
-        "time_limit_seconds": get_settings().part_time_limit_minutes * 60,
         "parts": [
             {
                 "part": ws.part,

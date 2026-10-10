@@ -4,13 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from agents import single, team
-from agents.roles import Specialist
 from api.errors import run
 from db import get_db
 from schemas.chat import MessageCreate, MessageOut, TurnResult
 from services import chat, study
 
-# The chat of the current part: one thread per agent in team mode, one assistant thread in single mode.
+# The chat of the current part: the team's conversation, or the single assistant's.
 # Agents only talk and propose; what they propose comes back as pending approvals.
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -37,9 +36,10 @@ def ready_for_review(db: Db) -> TurnResult:
     return _turn(run(review))
 
 
-@router.post("/consult/{agent}")
-def consult(db: Db, agent: Specialist) -> TurnResult:
-    return _turn(run(lambda: team.consult(db, study.editable_workspace(db), agent)))
+@router.post("/next")
+def next_reply(db: Db) -> TurnResult:
+    # Team mode: the next agent on the latest message's route answers.
+    return _turn(run(lambda: team.next_reply(db, study.editable_workspace(db))))
 
 
 @router.get("/{thread}")

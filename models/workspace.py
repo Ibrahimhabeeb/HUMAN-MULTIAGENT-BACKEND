@@ -19,6 +19,6 @@ class Workspace(Base):
     part: Mapped[int] = mapped_column(Integer)  # 1 or 2
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    done_reason: Mapped[str | None] = mapped_column(String(20))  # done | time_limit
+    done_reason: Mapped[str | None] = mapped_column(String(20))
     security_state: Mapped[dict] = mapped_column(JSON, default=dict)  # team mode only
     notes: Mapped[str] = mapped_column(Text, default="")  # single mode only
