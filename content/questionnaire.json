@@ -1,0 +1,54 @@
+{
+  "version": "v1",
+  "scale": {"min": 1, "max": 7, "min_label": "Strongly disagree", "max_label": "Strongly agree"},
+  "sections": [
+    {
+      "title": "Both ways of working",
+      "intro": "Rate each statement once for each way of working.",
+      "asked_for": "each_mode",
+      "questions": [
+        {"key": "threat_modelling", "type": "scale", "text": "This way of working helped me think about what could go wrong before and while I wrote the code."},
+        {"key": "testing", "type": "scale", "text": "This way of working helped me test whether my code was secure."},
+        {"key": "revision", "type": "scale", "text": "This way of working helped me find and fix security problems in my code."},
+        {"key": "confidence", "type": "scale", "text": "I am confident that my final code is secure."},
+        {"key": "control", "type": "scale", "text": "I felt in control of the decisions and the code."},
+        {"key": "approving", "type": "scale", "text": "Approving or rejecting each suggestion helped me check it before using it."},
+        {"key": "workload", "type": "scale", "text": "I could keep up with the AI's messages and suggestions without feeling overloaded."}
+      ]
+    },
+    {
+      "title": "The agent team",
+      "intro": "These statements are about the agent team only.",
+      "asked_for": "team",
+      "questions": [
+        {"key": "choosing_agents", "type": "scale", "text": "It was clear which agent to consult at each point."},
+        {"key": "facilitator", "type": "scale", "text": "The Facilitator's suggestions helped me decide whom to consult."},
+        {"key": "roles_clear", "type": "scale", "text": "Each agent's role was clear."},
+        {"key": "state_tracking", "type": "scale", "text": "The shared security state helped me keep track of risks, mitigations and evidence."},
+        {"key": "state_visible", "type": "scale", "text": "Risks raised early stayed visible until they were dealt with."},
+        {"key": "evidence", "type": "scale", "text": "Test results linked to risks showed me which risks were dealt with."}
+      ]
+    },
+    {
+      "title": "Comparing the two",
+      "intro": "Choose one answer for each question.",
+      "asked_for": "once",
+      "questions": [
+        {"key": "more_secure", "type": "choice", "text": "Which helped you more with security?", "options": ["Agent team", "Single assistant", "No difference"]},
+        {"key": "more_control", "type": "choice", "text": "In which did you feel more in control?", "options": ["Agent team", "Single assistant", "No difference"]},
+        {"key": "less_effort", "type": "choice", "text": "Which took less effort?", "options": ["Agent team", "Single assistant", "No difference"]},
+        {"key": "prefer", "type": "choice", "text": "Which would you rather use for security-sensitive code?", "options": ["Agent team", "Single assistant", "No preference"]}
+      ]
+    },
+    {
+      "title": "About your experience",
+      "intro": "Choose one answer for each question.",
+      "asked_for": "once",
+      "questions": [
+        {"key": "python_experience", "type": "choice", "text": "How long have you programmed in Python?", "options": ["Less than 1 year", "1–3 years", "More than 3 years"]},
+        {"key": "security_familiarity", "type": "choice", "text": "How familiar are you with secure coding, e.g. the OWASP Top 10?", "options": ["Not familiar", "Somewhat familiar", "Very familiar"]},
+        {"key": "ai_assistant_use", "type": "choice", "text": "How often do you use AI coding assistants?", "options": ["Never", "Sometimes", "Often"]}
+      ]
+    }
+  ]
+}
