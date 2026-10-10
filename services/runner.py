@@ -22,6 +22,10 @@ _SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^LLM_|^OPENAI|^ANTHR
 _PROBLEMS = {"failure": "failed", "error": "error", "skipped": "skipped"}
 # The run's own pytest settings, so the backend's (pyproject.toml) never apply to a workspace.
 _CONFIG = "[pytest]\njunit_family = xunit1\n"
+# A Ctrl+C sent to the server's console (uvicorn's reload sends one on Windows) must not stop the tests.
+_OWN_PROCESS_GROUP: dict = (
+    {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
+)
 
 
 def _environment() -> dict[str, str]:
@@ -67,6 +71,7 @@ def _pytest(folder: Path) -> tuple[int | None, list[CaseResult], str]:
                 errors="replace",
                 timeout=get_settings().test_timeout_seconds,
                 check=False,  # failing tests are a normal result
+                **_OWN_PROCESS_GROUP,
             )
         except subprocess.TimeoutExpired as e:
             return None, [], _tail(e.stdout, e.stderr)

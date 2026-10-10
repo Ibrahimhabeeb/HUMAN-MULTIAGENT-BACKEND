@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -9,6 +10,7 @@ from api.approvals import router as approvals_router
 from api.chat import router as chat_router
 from api.study import router as study_router
 from api.workspace import router as workspace_router
+from config import get_settings
 from db import init_db
 from services import questionnaire
 
@@ -49,4 +51,12 @@ app.include_router(chat_router)
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    # Participants' .py files are saved in these folders; changes there must not restart the server.
+    # (uvicorn only matches excluded folders by their absolute path, and only if they exist.)
+    settings = get_settings()
+    participant_dirs = [Path(folder).resolve() for folder in (settings.workspaces_dir, settings.snapshots_dir)]
+    for folder in participant_dirs:
+        folder.mkdir(parents=True, exist_ok=True)
+    uvicorn.run(
+        "main:app", host="127.0.0.1", port=8000, reload=True, reload_excludes=[str(d) for d in participant_dirs]
+    )
