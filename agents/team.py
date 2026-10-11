@@ -32,6 +32,14 @@ NO_VULNERABILITIES_NOTICE = (
 )
 
 
+def _risk_list(state: SecurityState) -> str:
+    lines = []
+    for risk in state.risks:
+        details = ", ".join(part for part in (risk.severity, risk.cwe, risk.status) if part)
+        lines.append(f"- {risk.id} ({details}): {risk.description}")
+    return "\n".join(lines)
+
+
 def _vulnerability_list(state: SecurityState) -> str:
     tested = {found: test.path for test in state.tests for found in test.vulnerability_ids}
     lines = []
@@ -41,6 +49,15 @@ def _vulnerability_list(state: SecurityState) -> str:
         line = f"- {v.id} ({details}): {v.description}"
         lines.append(line + (f" [already tested in {tested[v.id]}]" if v.id in tested else ""))
     return "\n".join(lines)
+
+
+def _in_the_state(state: SecurityState | None) -> str:
+    # What the Code Reviewer can link its proposals to, so it never has to guess an id.
+    state = state or SecurityState()
+    return (
+        f"The approved risks:\n{_risk_list(state) or '(none yet)'}\n\n"
+        f"The vulnerabilities in the security state:\n{_vulnerability_list(state) or '(none yet)'}"
+    )
 
 
 def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
@@ -55,7 +72,7 @@ def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
 
 def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: AgentContext) -> str:
     # What the agent is given: the developer's message and what the others already answered; the Code Reviewer
-    # always gets the current code, the Test/Verifier the approved vulnerabilities.
+    # always gets the current code and what is in the state, the Test/Verifier the approved vulnerabilities.
     review = "snapshot" in asked.data
     if agent == "verifier":
         vulnerabilities = _vulnerability_list(ctx.state or SecurityState()) or "(none yet)"
@@ -66,13 +83,13 @@ def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: Agent
             )
         return f"{asked.content}\n\nThe approved vulnerabilities:\n{vulnerabilities}"
     if agent == "reviewer" and review:
-        return f"{REVIEW_MESSAGE}\n\n{code_listing(ctx.files)}"
+        return f"{REVIEW_MESSAGE}\n\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
 
     text = asked.content
     for reply in replies:
         text += f"\n\n[{NAMES[reply.data['agent']]} already answered this]\n{reply.content}"
     if agent == "reviewer":
-        text += f"\n\nThe developer's current code:\n{code_listing(ctx.files)}"
+        text += f"\n\nThe developer's current code:\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
     return text
 
 

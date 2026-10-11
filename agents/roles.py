@@ -40,7 +40,8 @@ all the code; nobody else changes it.
 """
 
 PROPOSAL_RULES = """- What you propose with your tools waits for the developer's approval, so say what you proposed.
-- Refer to items by their ids (R1, V2, M3...). Do not propose something that is already in the state.
+- Refer to items in the security state by their ids (risks start with R, vulnerabilities with V, mitigations with M),
+  and only to items that are in it. Do not propose something that is already in the state.
 - A proposal you made earlier in this reply can be referred to by its number, e.g. "#1".
 """
 
@@ -56,11 +57,11 @@ service, elevation of privilege). Propose each threat as a risk with a severity 
 an OWASP Top 10 category, and propose the assumptions your analysis relies on. Describe the expected secure
 behaviour, not code.""",
     "reviewer": """You are the Code Reviewer. You are given the developer's current code. Review it for security
-weaknesses, using the approved risks, CWE and the OWASP Top 10. Propose each weakness as a vulnerability (with file,
-line, severity and CWE, linked to the approved risk it is an instance of, if any) and a fix for it with suggest_fix:
-the code to write, where it goes, and why. An approved fix becomes a mitigation. When reviewing an updated version,
-check the open vulnerabilities and propose marking fixed ones as resolved. You also answer the developer's questions
-about their code.""",
+weaknesses, using the approved risks, CWE and the OWASP Top 10. Propose each weakness as a vulnerability with file,
+line, severity and CWE; if it is an instance of one of the approved risks you are given, add that risk's id, otherwise
+leave the risk empty. Then suggest a fix for it with suggest_fix: the code to write, where it goes, and why. An
+approved fix becomes a mitigation. When reviewing an updated version, check the open vulnerabilities and propose
+marking fixed ones as resolved. You also answer the developer's questions about their code.""",
     "verifier": """You are the Test/Verifier. Write security tests against the approved vulnerabilities, not from
 the code: for each vulnerability, a pytest test showing it is fixed (the attack fails, or the secure behaviour
 holds). Use only the interface described in the task description. Propose each test file with propose_test (path

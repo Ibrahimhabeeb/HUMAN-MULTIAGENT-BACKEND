@@ -162,6 +162,50 @@ def test_a_fix_for_a_vulnerability_from_the_same_reply_waits_for_it(client, team
     assert [(m["id"], m["vulnerability_id"]) for m in mitigations] == [("M1", "V1"), ("M2", None)]
 
 
+def test_the_code_reviewer_sees_what_is_in_the_state_and_cannot_link_to_anything_else(client, team, model):
+    client.post("/workspace/state/risks", json=RISK)
+    replies = []
+
+    def reviewer(tools):
+        replies.append(tools["propose_vulnerability"].invoke({**VULNERABILITY, "risk_id": "R7"}))
+        replies.append(tools["suggest_fix"].invoke({**FIX, "vulnerability": "SQL injection"}))
+        replies.append(tools["mark_resolved"].invoke({"item_id": "V9", "reason": "It is fixed now"}))
+        replies.append(tools["propose_vulnerability"].invoke({**VULNERABILITY, "risk_id": "R1"}))
+        replies.append(tools["suggest_fix"].invoke(FIX))  # "#1" is the vulnerability just recorded
+        return "One vulnerability, with a fix."
+
+    model.scripts["reviewer"] = reviewer
+    reply = client.post("/chat/review").json()
+    assert replies[0] == (
+        "Not recorded: R7 is not an approved risk (approved risks: R1). Use one of those or leave risk_id empty."
+    )
+    assert replies[1].startswith("Not recorded: SQL injection is not a vulnerability in the security state")
+    assert replies[2] == "Not recorded: V9 is not in the security state."
+    assert [r.split(".")[0] for r in replies[3:]] == ["Recorded as proposal #1", "Recorded as proposal #2"]
+    assert [a["action_type"] for a in reply["approvals"]] == ["propose_vulnerability", "suggest_fix"]
+
+    sent = model.last("reviewer")["messages"][-1]
+    assert "The approved risks:\n- R1 (High, CWE-89, open): SQL injection in login" in sent
+    assert "The vulnerabilities in the security state:\n(none yet)" in sent
+
+
+def test_the_verifier_can_only_test_approved_vulnerabilities(client, team, model):
+    client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
+    replies = []
+
+    def verifier(tools):
+        test = {"path": "tests/test_security_login.py", "content": "def test_x():\n    assert True\n"}
+        replies.append(tools["propose_test"].invoke({**test, "vulnerability_ids": ["V1", "V7"]}))
+        replies.append(tools["propose_test"].invoke({**test, "vulnerability_ids": ["V1"]}))
+        return "One test for V1."
+
+    model.scripts["verifier"] = verifier
+    client.post("/chat/review")
+    (test,) = next_reply(client).json()["approvals"]
+    assert replies[0] == "Not recorded: these are not approved vulnerabilities: V7 (approved: V1)."
+    assert test["proposal"]["vulnerability_ids"] == ["V1"]
+
+
 def test_done_runs_the_code_reviewer_then_the_verifier(client, team, model, study_dirs):
     client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "cwe": "CWE-89"})
 

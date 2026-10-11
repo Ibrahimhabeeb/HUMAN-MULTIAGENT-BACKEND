@@ -1,9 +1,13 @@
+import re
+
 from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
 from agents.context import AgentContext, Proposal, numbered
 from schemas.approval import PROPOSAL_SCHEMAS
-from schemas.security_state import Severity
+from schemas.security_state import Severity, StateItem
+
+_EARLIER_PROPOSAL = re.compile(r"#(\d+)")
 
 # Which tools each agent gets. Reading tools only look at the run's snapshot;
 # every other tool records a proposal that waits for the human's approval.
@@ -33,12 +37,56 @@ TOOLS_FOR: dict[str, list[str]] = {
 }
 
 
+def _ids(items: list[StateItem]) -> str:
+    return ", ".join(item.id for item in items) or "none yet"
+
+
+def _link_problem(ctx: AgentContext, action_type: str, proposal: dict) -> str | None:
+    # Team mode: a proposal may only point at items in the approved state, or a fix at a vulnerability proposed
+    # earlier in the same reply ("#n"). Saying so straight away lets the agent correct it before the developer sees it.
+    state = ctx.state
+    if state is None:
+        return None
+    risks = {risk.id for risk in state.risks}
+    vulnerabilities = {v.id for v in state.vulnerabilities}
+    if action_type == "propose_vulnerability":
+        risk_id = proposal["risk_id"]
+        if risk_id is not None and risk_id not in risks:
+            return (
+                f"{risk_id} is not an approved risk (approved risks: {_ids(state.risks)}). "
+                "Use one of those or leave risk_id empty."
+            )
+    elif action_type == "suggest_fix":
+        target = proposal["vulnerability"].strip()
+        earlier = _EARLIER_PROPOSAL.fullmatch(target)
+        if earlier:
+            n = int(earlier.group(1))
+            if not (0 < n <= len(ctx.proposals) and ctx.proposals[n - 1].action_type == "propose_vulnerability"):
+                return f"{target} is not a vulnerability you proposed earlier in this reply."
+        elif target not in vulnerabilities:
+            return (
+                f"{target} is not a vulnerability in the security state (vulnerabilities: {_ids(state.vulnerabilities)}). "
+                "Propose the vulnerability first, then refer to it by its proposal number, e.g. #1."
+            )
+    elif action_type == "propose_test":
+        unknown = [v for v in proposal["vulnerability_ids"] if v not in vulnerabilities]
+        if unknown:
+            approved = _ids(state.vulnerabilities)
+            return f"these are not approved vulnerabilities: {', '.join(unknown)} (approved: {approved})."
+    elif action_type == "mark_resolved" and proposal["item_id"] not in risks | vulnerabilities:
+        return f"{proposal['item_id']} is not in the security state."
+    return None
+
+
 def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
     def record(action_type: str, **fields) -> str:
         try:
             data = PROPOSAL_SCHEMAS[action_type].model_validate({k: v for k, v in fields.items() if v is not None})
         except ValidationError as e:
             return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
+        problem = _link_problem(ctx, action_type, data.model_dump())
+        if problem:
+            return f"Not recorded: {problem}"
         ctx.proposals.append(Proposal(actor, action_type, data.model_dump(mode="json")))
         return f"Recorded as proposal #{len(ctx.proposals)}. It waits for the developer's approval."
 
@@ -85,8 +133,8 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
         cwe: str | None = None,
         risk_id: str | None = None,
     ) -> str:
-        """Propose a vulnerability: a weakness in the code, with its file and line, and the approved risk it is an
-        instance of (e.g. "R1"), if any."""
+        """Propose a vulnerability: a weakness in the code, with its file and line. Give risk_id only if it is an
+        instance of one of the approved risks; otherwise leave it empty."""
         return record(
             "propose_vulnerability",
             description=description,
