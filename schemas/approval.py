@@ -1,10 +1,11 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemas.common import UtcDatetime
 from schemas.security_state import AssumptionCreate, RiskCreate, VulnerabilityCreate
 from schemas.workspace import MAX_FILE_CHARS
+from services.paths import clean_path
 
 ActionType = Literal[
     "propose_assumption",
@@ -32,10 +33,22 @@ class ProposedTest(BaseModel):
 class FixSuggestion(BaseModel):
     # In team mode an approved fix becomes a mitigation for the vulnerability it fixes.
     vulnerability: str = Field(max_length=200)  # what it fixes, e.g. "V2", or a short description in single mode
-    file: str = Field(max_length=300)
-    location: str = Field(max_length=300)  # where the code goes, e.g. "login(), replacing line 12"
+    file: str = Field(min_length=1, max_length=300)
+    location: str = Field(min_length=3, max_length=300)  # where the code goes, e.g. "login(), replacing line 12"
     code: str = Field(min_length=1, max_length=20_000)
     why: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("file")
+    @classmethod
+    def valid_file_path(cls, value: str) -> str:
+        return clean_path(value)
+
+    @field_validator("location")
+    @classmethod
+    def precise_location(cls, value: str) -> str:
+        if len(value.strip()) < 3:
+            raise ValueError("Specify the function, line or nearby statement and where to put the fix")
+        return value.strip()
 
 
 PROPOSAL_SCHEMAS: dict[str, type[BaseModel]] = {

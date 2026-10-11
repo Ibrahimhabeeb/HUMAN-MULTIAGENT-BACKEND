@@ -1,5 +1,7 @@
 from typing import Literal
 
+from agents.fix_guidance import FIX_GUIDANCE
+
 Specialist = Literal["planner", "threat_modeller", "reviewer", "verifier"]
 SPECIALISTS: tuple[Specialist, ...] = ("planner", "threat_modeller", "reviewer", "verifier")
 NAMES: dict[str, str] = {
@@ -46,7 +48,7 @@ PROPOSAL_RULES = """- What you propose with your tools waits for the developer's
   and only to items that are in it.
 """
 
-SHARED_RULES = TEAM_RULES + PROPOSAL_RULES
+SHARED_RULES = TEAM_RULES + PROPOSAL_RULES + FIX_GUIDANCE
 
 ROLE_PROMPTS: dict[str, str] = {
     "planner": """You are the Planner. Break the developer's task into clear implementation steps, note the
@@ -95,4 +97,5 @@ ASSISTANT_PROMPT = (
 questions, explain, plan, and review code when asked. You can read the project's files with your tools.
 """
     + CHANGE_RULES
+    + FIX_GUIDANCE
 )

@@ -221,7 +221,9 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
     @tool
     def suggest_fix(vulnerability: str, file: str, location: str, code: str, why: str) -> str:
         """Suggest a fix: what it fixes (an approved vulnerability's id such as "V2" when there is a security state,
-        otherwise a short description), the file, where the code goes, the code, and why."""
+        otherwise a short description), the full workspace-relative file path (e.g. "app/auth.py"), a precise
+        location (function/class and lines or nearby statement, and whether to replace or insert), the code,
+        and why. For a new file, say to create it in location. Never omit the file path or location."""
         return record("suggest_fix", vulnerability=vulnerability, file=file, location=location, code=code, why=why)
 
     @tool
