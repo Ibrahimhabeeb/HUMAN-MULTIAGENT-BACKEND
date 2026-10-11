@@ -45,7 +45,7 @@ def test_consent_creates_participant_and_opens_part_1(team, db):
 
 
 def test_consent_copies_the_starter_task_into_a_workspace(team):
-    folder = Path(get_settings().workspaces_dir) / "P01_A"
+    folder = Path(get_settings().workspaces_dir) / "P01_A_team"
     assert (folder / "app" / "auth.py").is_file()
     assert (folder / "README.md").read_text(encoding="utf-8").startswith("# Task: User login")
 
@@ -99,13 +99,13 @@ def test_cannot_start_the_other_mode_before_done(client, team, db):
     assert db.query(Workspace).count() == 1
 
 
-def test_done_then_switch_runs_part_2_with_task_b(client, db, team):
+def test_done_then_switch_runs_part_2_with_the_same_task(client, db, team):
     after_done = client.post("/study/done").json()
     assert after_done["screen"] == "part_complete"
 
     part_2 = client.post("/study/mode", json={"mode": "single"}).json()
-    assert (part_2["screen"], part_2["part"], part_2["task"]["id"]) == ("ide", 2, "B")
-    assert (Path(get_settings().workspaces_dir) / "P01_B" / "app" / "storage.py").is_file()
+    assert (part_2["screen"], part_2["part"], part_2["task"]["id"]) == ("ide", 2, "A")
+    assert (Path(get_settings().workspaces_dir) / "P01_A_single" / "app" / "auth.py").is_file()
 
     switched = db.query(Event).filter(Event.type == "mode_switched").one()
     assert switched.detail == {"from": "team", "to": "single"}
@@ -124,13 +124,13 @@ def test_questionnaire_opens_when_both_parts_are_done(client, team):
     assert state["screen"] == "questionnaire"
     assert [(p["part"], p["mode"], p["task_id"], p["done"]) for p in state["parts"]] == [
         (1, "team", "A", True),
-        (2, "single", "B", True),
+        (2, "single", "A", True),
     ]
 
 
 def test_done_saves_a_snapshot(client, team):
     client.post("/study/done")
-    assert (Path(get_settings().snapshots_dir) / "P01_A" / "01_done" / "app" / "auth.py").is_file()
+    assert (Path(get_settings().snapshots_dir) / "P01_A_team" / "01_done" / "app" / "auth.py").is_file()
 
 
 def test_done_twice_is_refused(client, team):

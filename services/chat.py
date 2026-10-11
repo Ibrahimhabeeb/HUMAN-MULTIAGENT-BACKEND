@@ -55,9 +55,9 @@ def as_langchain(messages: list[Message], me: str | None = None) -> list[BaseMes
     return result
 
 
-def save_proposals(db: Session, ws: Workspace, proposals: list[Proposal]) -> list[Approval]:
+def save_proposals(db: Session, ws: Workspace, proposals: list[Proposal], *, commit: bool = True) -> list[Approval]:
     # Turns an agent's collected proposals into approval requests.
     return [
-        approvals.request_approval(db, ws, p.actor, p.action_type, p.proposal)  # type: ignore[arg-type]
+        approvals.request_approval(db, ws, p.actor, p.action_type, p.proposal, commit=commit)  # type: ignore[arg-type]
         for p in proposals
     ]

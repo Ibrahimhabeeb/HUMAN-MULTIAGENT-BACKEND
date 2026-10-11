@@ -11,7 +11,7 @@ def files(client):
 
 
 def on_disk(*parts):
-    return Path(get_settings().workspaces_dir, "P01_A", *parts)
+    return Path(get_settings().workspaces_dir, "P01_A_team", *parts)
 
 
 def test_lists_the_starter_task(client, team):

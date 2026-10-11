@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, get_args
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -13,8 +13,9 @@ from schemas.study import (
     ModeRequest,
     StartRequest,
     StudyState,
+    TaskId,
 )
-from services import content, questionnaire, study
+from services import content, questionnaire, study, workspace
 
 router = APIRouter(prefix="/study", tags=["study"])
 
@@ -24,7 +25,10 @@ Db = Annotated[Session, Depends(get_db)]
 
 
 def _state(db: Session) -> StudyState:
-    return StudyState(**study.get_state(db))
+    return StudyState(
+        **study.get_state(db),
+        available_tasks=[{"id": task_id, "label": workspace.task_label(task_id)} for task_id in get_args(TaskId)],
+    )
 
 
 @router.get("/state")
@@ -34,7 +38,7 @@ def get_state(db: Db) -> StudyState:
 
 @router.post("/start")
 def start(db: Db, body: StartRequest) -> StudyState:
-    run(lambda: study.start(db, body.pilot))
+    run(lambda: study.start(db, body.pilot, body.task_id))
     return _state(db)
 
 

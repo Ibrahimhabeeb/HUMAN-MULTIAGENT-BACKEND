@@ -28,6 +28,7 @@ class ProposedTest(BaseModel):
     path: str = Field(pattern=r"^tests/(?:[\w-]+/)*test_[\w-]+\.py$")
     content: str = Field(min_length=1, max_length=MAX_FILE_CHARS)
     vulnerability_ids: list[str] = []  # the approved vulnerabilities it tests (team mode)
+    base_content: str | None = None  # existing file when proposed; prevents overwriting later human edits
 
 
 class FixSuggestion(BaseModel):

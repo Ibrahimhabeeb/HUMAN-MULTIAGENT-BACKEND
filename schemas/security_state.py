@@ -40,12 +40,11 @@ class VulnerabilityCreate(BaseModel):
     file: str | None = Field(default=None, max_length=300)
     line: int | None = Field(default=None, ge=1)
     cwe: str | None = Field(default=None, pattern=r"^CWE-\d+$")
-    risk_id: str | None = None  # the risk this vulnerability is an instance of, if any
 
 
 class MitigationCreate(BaseModel):
     # A fix the Code Reviewer suggested and the human approved: the code to write, where it goes, and why.
-    vulnerability_id: str | None = None  # the vulnerability it fixes
+    vulnerability_id: str | None = None  # nullable for legacy data; new/edited items must link to a vulnerability
     description: str = Field(min_length=3, max_length=2000)
     file: str | None = Field(default=None, max_length=300)
     location: str | None = Field(default=None, max_length=300)

@@ -53,8 +53,8 @@ def test_withdraw_deletes_their_data_and_never_reuses_the_id(client, db, team, e
 
     folders = withdraw.withdraw(db, "P01")
     assert sorted(f.parent.name for f in folders) == ["snapshots", "workspaces"]
-    assert not (study_dirs / "workspaces" / "P01_A").exists()
-    assert not (study_dirs / "snapshots" / "P01_A").exists()
+    assert not (study_dirs / "workspaces" / "P01_A_team").exists()
+    assert not (study_dirs / "snapshots" / "P01_A_team").exists()
     for table in Base.metadata.sorted_tables:
         if "participant_code" in table.c:
             assert db.execute(table.select().where(table.c.participant_code == "P01")).all() == [], table.name

@@ -47,7 +47,6 @@ CREATE_SCHEMA: dict[str, type[BaseModel]] = {
 }
 # The fields that link one item to another: (category, field) -> the category of the item it points at.
 LINKS: dict[tuple[str, str], Category] = {
-    ("vulnerabilities", "risk_id"): "risks",
     ("mitigations", "vulnerability_id"): "vulnerabilities",
 }
 PROTECTED_FIELDS = {"id", "source", "approval_id", "timestamp"}
@@ -128,6 +127,8 @@ def _require(state: SecurityState, category: Category, item_id: str) -> None:
 
 
 def _check_links(state: SecurityState, category: str, item: BaseModel) -> None:
+    if category == "mitigations" and not getattr(item, "vulnerability_id", None):
+        raise ConflictError("A mitigation must be linked to an existing vulnerability")
     for (linking, field), target in LINKS.items():
         target_id = getattr(item, field, None)
         if linking == category and target_id is not None:

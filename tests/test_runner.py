@@ -34,7 +34,7 @@ def test_reports_each_test_of_the_workspace(client, db, single, study_dirs):
 
     logged = db.query(Event).filter(Event.type == "tests_run").one()
     assert logged.detail["counts"] == result["counts"]
-    assert (study_dirs / "snapshots" / "P01_A" / logged.detail["snapshot"] / "tests" / "test_extra.py").is_file()
+    assert (study_dirs / "snapshots" / "P01_A_single" / logged.detail["snapshot"] / "tests" / "test_extra.py").is_file()
 
 
 def test_says_so_when_there_are_no_tests(client, single):

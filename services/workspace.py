@@ -16,8 +16,17 @@ IGNORED = {"__pycache__", ".pytest_cache"}
 _ignore = shutil.ignore_patterns(*IGNORED)
 
 
+def _directory_name(ws: Workspace) -> str:
+    return f"{ws.participant_code}_{ws.task_id}_{ws.mode}"
+
+
 def folder(ws: Workspace) -> Path:
-    return Path(get_settings().workspaces_dir) / f"{ws.participant_code}_{ws.task_id}"
+    root = Path(get_settings().workspaces_dir)
+    current = root / _directory_name(ws)
+    legacy = root / f"{ws.participant_code}_{ws.task_id}"
+    # Keep older sessions readable without moving or overwriting participant data.
+    legacy_task = "A" if ws.part == 1 else "B"
+    return legacy if ws.task_id == legacy_task and not current.exists() and legacy.is_dir() else current
 
 
 def task_label(task_id: str) -> str:
@@ -30,14 +39,14 @@ def create_from_starter(ws: Workspace) -> None:
     source = Path(get_settings().starter_dir) / f"task_{ws.task_id}"
     if not source.is_dir():
         raise NotFoundError(f"Starter task {source} is missing")
-    destination = folder(ws)
+    destination = Path(get_settings().workspaces_dir) / _directory_name(ws)
     if destination.exists():
         raise ConflictError(f"Workspace {destination} already exists")
     shutil.copytree(source, destination, ignore=_ignore)
 
 
 def snapshot(ws: Workspace, reason: str) -> Path:
-    base = Path(get_settings().snapshots_dir) / f"{ws.participant_code}_{ws.task_id}"
+    base = Path(get_settings().snapshots_dir) / folder(ws).name
     base.mkdir(parents=True, exist_ok=True)
     number = sum(1 for p in base.iterdir() if p.is_dir()) + 1
     destination = base / f"{number:02d}_{reason}"

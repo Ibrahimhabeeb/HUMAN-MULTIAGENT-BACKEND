@@ -8,14 +8,14 @@ from models.common import utc_now
 
 
 class Workspace(Base):
-    # One per participant per mode. The files themselves live on disk in workspaces/<code>_<task_id>/.
+    # One independent attempt per mode, in workspaces/<code>_<task_id>_<mode>/.
     __tablename__ = "workspaces"
     __table_args__ = (UniqueConstraint("participant_code", "mode"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     participant_code: Mapped[str] = mapped_column(String(10), index=True)
     mode: Mapped[str] = mapped_column(String(10))  # team | single
-    task_id: Mapped[str] = mapped_column(String(10))  # A for the first mode used, B for the second
+    task_id: Mapped[str] = mapped_column(String(10))  # the same chosen task (A or B) in both modes
     part: Mapped[int] = mapped_column(Integer)  # 1 or 2
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

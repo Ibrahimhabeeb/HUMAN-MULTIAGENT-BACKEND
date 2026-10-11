@@ -1,9 +1,12 @@
 import logging
 
+import pytest
+
 from models import Event
+from services import study
 
 RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
-VULNERABILITY = {"description": "f-string SQL", "severity": "High", "file": "app/auth.py", "line": 5, "risk_id": "R1"}
+VULNERABILITY = {"description": "f-string SQL", "severity": "High", "file": "app/auth.py", "line": 5}
 MITIGATION = {"vulnerability_id": "V1", "description": "Parameterised queries"}
 
 
@@ -26,11 +29,54 @@ def test_all_four_human_categories(client, team):
     assert add(client, "mitigations", MITIGATION).json()["id"] == "M1"
 
 
-def test_links_must_point_at_existing_items(client, team):
-    unknown_risk = add(client, "vulnerabilities", VULNERABILITY)
-    assert (unknown_risk.status_code, unknown_risk.json()["detail"]) == (404, "R1 is not in risks; change or remove the link")
+def test_mitigation_links_must_point_at_existing_vulnerabilities(client, team):
     assert add(client, "mitigations", MITIGATION).status_code == 404
-    assert add(client, "vulnerabilities", {**VULNERABILITY, "risk_id": None}).status_code == 201  # links are optional
+    assert add(client, "vulnerabilities", VULNERABILITY).status_code == 201  # no risk is needed
+    assert add(client, "mitigations", MITIGATION).status_code == 201
+
+
+@pytest.mark.parametrize("target", [None, ""])
+def test_a_mitigation_cannot_be_added_without_a_vulnerability(client, team, target):
+    response = add(client, "mitigations", {**MITIGATION, "vulnerability_id": target})
+    assert response.status_code == 409
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+@pytest.mark.parametrize("target,status", [(None, 409), ("", 409), ("V99", 404)])
+def test_a_mitigation_cannot_be_edited_to_remove_or_break_its_link(client, team, target, status):
+    add(client, "vulnerabilities", VULNERABILITY)
+    mitigation = add(client, "mitigations", MITIGATION).json()
+    assert client.patch("/workspace/state/mitigations/M1", json={"vulnerability_id": target}).status_code == status
+    assert client.get("/workspace/state/mitigations/M1").json() == mitigation
+
+
+def test_a_legacy_unlinked_mitigation_can_be_read_and_linked(client, db, team):
+    add(client, "vulnerabilities", VULNERABILITY)
+    mitigation = add(client, "mitigations", MITIGATION).json()
+    legacy = {**mitigation, "vulnerability_id": None}
+    ws = study.current_workspace(db)
+    ws.security_state = {**ws.security_state, "mitigations": [legacy]}
+    db.commit()
+
+    assert client.get("/workspace/state").json()["mitigations"] == [legacy]
+    response = client.patch("/workspace/state/mitigations/M1", json={"vulnerability_id": "V1"})
+    assert response.status_code == 200
+    assert response.json() == mitigation
+
+
+def test_existing_findings_with_legacy_risk_links_still_load(client, db, team):
+    vulnerability = add(client, "vulnerabilities", VULNERABILITY).json()
+    ws = study.current_workspace(db)
+    ws.security_state = {
+        **ws.security_state,
+        "vulnerabilities": [{**vulnerability, "risk_id": "R99"}],
+    }
+    db.commit()
+
+    state = client.get("/workspace/state").json()
+    assert state["vulnerabilities"] == [vulnerability]
+    assert state["risks"] == []
+    assert ws.security_state["vulnerabilities"][0]["risk_id"] == "R99"  # reading doesn't rewrite stored data
 
 
 def test_tests_are_not_added_by_hand(client, team):
@@ -58,11 +104,11 @@ def test_delete_keeps_links_consistent_and_ids_are_never_reused(client, team):
     add(client, "risks", RISK)
     add(client, "vulnerabilities", VULNERABILITY)
     add(client, "mitigations", MITIGATION)
-    assert client.delete("/workspace/state/risks/R1").status_code == 409  # V1 is an instance of it
+    assert client.delete("/workspace/state/risks/R1").status_code == 204  # findings are independent of risks
+    assert client.get("/workspace/state/vulnerabilities/V1").status_code == 200
     assert client.delete("/workspace/state/vulnerabilities/V1").status_code == 409  # M1 fixes it
     assert client.delete("/workspace/state/mitigations/M1").status_code == 204
     assert client.delete("/workspace/state/vulnerabilities/V1").status_code == 204
-    assert client.delete("/workspace/state/risks/R1").status_code == 204
     assert add(client, "risks", RISK).json()["id"] == "R2"
 
 

@@ -14,7 +14,7 @@ from schemas.approval import (
     ProposedTest,
 )
 from schemas.security_state import MitigationCreate
-from services import state_service, workspace
+from services import followups, state_service, workspace
 from services.errors import ConflictError, NotFoundError
 from services.events import log_event
 
@@ -27,7 +27,9 @@ _ADDS_TO = {
 _STATUS_FOR = {"approve": "approved", "reject": "rejected"}
 
 
-def request_approval(db: Session, ws: Workspace, actor: str, action_type: ActionType, proposal: dict) -> Approval:
+def request_approval(
+    db: Session, ws: Workspace, actor: str, action_type: ActionType, proposal: dict, *, commit: bool = True
+) -> Approval:
     """Every agent tool call that would change something ends up here. It waits for the human's decision,
     except a suggested risk, which goes straight into the security state."""
     if ws.mode == "single" and action_type not in SINGLE_MODE_ACTIONS:
@@ -54,7 +56,8 @@ def request_approval(db: Session, ws: Workspace, actor: str, action_type: Action
             mode=ws.mode,
             detail={"approval_id": approval.id, "proposer": actor, "action_type": action_type},
         )
-    db.commit()
+    if commit:
+        db.commit()
     return approval
 
 
@@ -81,11 +84,10 @@ def get_approval(db: Session, ws: Workspace, approval_id: int) -> Approval:
 
 
 def _add_mitigation(ws: Workspace, approval: Approval, fix: dict[str, Any]) -> dict:
-    # In team mode an approved fix becomes a mitigation, linked to the vulnerability it fixes if that is in the state.
+    # In team mode an approved fix must point at the vulnerability it fixes.
     state = state_service.load(ws)
-    fixes = fix["vulnerability"]
     mitigation = MitigationCreate(
-        vulnerability_id=fixes if state_service.has(state, "vulnerabilities", fixes) else None,
+        vulnerability_id=fix["vulnerability"].strip(),
         description=fix["why"],
         file=fix["file"],
         location=fix["location"],
@@ -105,6 +107,8 @@ def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]
 
     if action == "propose_test":
         test = ProposedTest.model_validate(final)
+        if test.base_content is not None and workspace.read_file(ws, test.path)["content"] != test.base_content:
+            raise ConflictError(f"{test.path} has changed since this proposal. Reject it and request updated tests.")
         if ws.mode == "team":
             state = state_service.load(ws)
             state_service.link_test(state, test.path, test.vulnerability_ids, approval.id)
@@ -149,10 +153,13 @@ def decide(db: Session, ws: Workspace, approval_id: int, decision: Decision) -> 
         raise ConflictError(f"Approval {approval_id} has already been decided")
 
     try:
+        db.refresh(ws)  # another approval may have changed the shared state while this request waited for its claim
         approval.result = _apply(db, ws, approval, final) if final is not None else None
         approval.status = _STATUS_FOR[decision]
         approval.final_proposal = final
         approval.decided_at = utc_now()
+        if decision == "approve" and approval.action_type == "propose_vulnerability":
+            followups.queue_missing(db, ws)
         log_event(
             db,
             ws.participant_code,

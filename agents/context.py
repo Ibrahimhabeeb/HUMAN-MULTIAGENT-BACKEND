@@ -34,6 +34,7 @@ class AgentContext:
     state: SecurityState | None  # team mode only
     earlier: list[Earlier] = field(default_factory=list)  # team mode only
     proposals: list[Proposal] = field(default_factory=list)
+    target_vulnerability: str | None = None  # automatic follow-ups stay focused on the newly approved finding
 
     @property
     def task_description(self) -> str:

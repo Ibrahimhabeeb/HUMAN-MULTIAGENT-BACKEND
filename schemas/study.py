@@ -3,11 +3,13 @@ from typing import Literal
 from pydantic import BaseModel
 
 Mode = Literal["team", "single"]
+TaskId = Literal["A", "B"]
 Screen = Literal["start", "information", "consent", "ide", "part_complete", "questionnaire", "thank_you"]
 
 
 class StartRequest(BaseModel):
     pilot: bool = False
+    task_id: TaskId = "A"
 
 
 class ConsentRequest(BaseModel):
@@ -39,6 +41,7 @@ class StudyState(BaseModel):
     part: int | None = None
     task: TaskInfo | None = None
     parts: list[PartInfo] = []
+    available_tasks: list[TaskInfo] = []
 
 
 class InformationContent(BaseModel):

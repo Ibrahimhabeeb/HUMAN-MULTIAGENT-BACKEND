@@ -1,3 +1,6 @@
+import ast
+from pathlib import PurePosixPath
+
 from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
@@ -28,7 +31,7 @@ TOOLS_FOR: dict[str, list[str]] = {
         "mark_resolved",
     ],
     # Tests are written against the approved vulnerabilities and the task's interface, not from the code.
-    "verifier": ["read_task_description", "get_security_state", "propose_test"],
+    "verifier": ["read_task_description", "list_test_files", "read_test_file", "get_security_state", "propose_test"],
     "assistant": ["list_files", "read_file", "suggest_fix", "propose_test"],
 }
 
@@ -57,12 +60,6 @@ def _risk_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> st
 
 
 def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
-    risk_id = proposal["risk_id"]
-    if risk_id is not None and not any(risk.id == risk_id for risk in state.risks):
-        return (
-            f"{risk_id} is not a risk in the security state (risks: {_ids(state.risks)}). "
-            "Use one of those or leave risk_id empty."
-        )
     for v in state.vulnerabilities:
         if _same_place(proposal, v.model_dump()):
             return f"this is the same as {v.id}, which is already in the security state."
@@ -105,6 +102,17 @@ def _test_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> st
     if unknown:
         approved = _ids(state.vulnerabilities)
         return f"these are not approved vulnerabilities: {', '.join(unknown)} (approved: {approved})."
+    original = ctx.files.get(proposal["path"])
+    if original is not None:
+        if original == proposal["content"]:
+            return "this test file is unchanged. Add regression tests for the approved vulnerability."
+        try:
+            before = [ast.dump(node) for node in ast.parse(original).body]
+            after = {ast.dump(node) for node in ast.parse(proposal["content"]).body}
+        except SyntaxError:
+            return "the existing or proposed test file has invalid Python syntax. Use a separate valid test file."
+        if any(node not in after for node in before):
+            return "preserve all existing tests, fixtures, imports and setup; add the new regression tests."
     for earlier in ctx.earlier:
         if earlier.action_type == "propose_test" and earlier.proposal.get("path") == proposal["path"]:
             if earlier.status == "pending":
@@ -148,12 +156,17 @@ def _problem(ctx: AgentContext, action_type: str, proposal: dict) -> str | None:
     return check(ctx, ctx.state, proposal) if check and ctx.state else None
 
 
-def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
+def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -> list[BaseTool]:
     def record(action_type: str, **fields) -> str:
         try:
             data = PROPOSAL_SCHEMAS[action_type].model_validate({k: v for k, v in fields.items() if v is not None})
         except ValidationError as e:
             return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
+        if ctx.target_vulnerability:
+            if action_type == "suggest_fix" and data.vulnerability.strip() != ctx.target_vulnerability:
+                return f"Not recorded: this follow-up is only for {ctx.target_vulnerability}."
+            if action_type == "propose_test" and ctx.target_vulnerability not in data.vulnerability_ids:
+                return f"Not recorded: the test must cover {ctx.target_vulnerability}."
         problem = _problem(ctx, action_type, data.model_dump(mode="json"))
         if problem:
             return f"Not recorded: {problem}"
@@ -178,6 +191,24 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
     def read_task_description() -> str:
         """Read the task description (README.md), including the interface to implement."""
         return ctx.task_description
+
+    def test_paths() -> list[str]:
+        return sorted(
+            path for path in ctx.files
+            if path.startswith("tests/") and path.endswith(".py") and ".." not in PurePosixPath(path).parts
+        )
+
+    @tool
+    def list_test_files() -> str:
+        """List existing Python files under tests/, without exposing application source code."""
+        return "\n".join(test_paths()) or "No Python test files yet."
+
+    @tool
+    def read_test_file(path: str) -> str:
+        """Read an existing Python file under tests/ to reuse its imports, fixtures and test conventions."""
+        if path not in test_paths():
+            return "Only existing Python files under tests/ are available. Use list_test_files."
+        return numbered(ctx.files[path])
 
     @tool
     def get_security_state() -> str:
@@ -204,10 +235,10 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
         file: str | None = None,
         line: int | None = None,
         cwe: str | None = None,
-        risk_id: str | None = None,
     ) -> str:
-        """Propose a vulnerability: a weakness in the code, with its file and line. Give risk_id only if it is an
-        instance of one of the risks in the security state; otherwise leave it empty."""
+        """Propose an actual security weakness in the current code, with its file and line, how it could be exploited
+        and its impact. Do not propose secure practices, hypothetical risks or optional improvements. If no
+        vulnerabilities are found, say "No vulnerabilities found." in chat instead of calling this tool."""
         return record(
             "propose_vulnerability",
             description=description,
@@ -215,7 +246,6 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
             file=file,
             line=line,
             cwe=cwe,
-            risk_id=risk_id,
         )
 
     @tool
@@ -234,7 +264,12 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
     @tool
     def propose_test(path: str, content: str, vulnerability_ids: list[str] | None = None) -> str:
         """Propose a pytest file, e.g. path "tests/test_security_login.py", and the vulnerability ids it tests."""
-        return record("propose_test", path=path, content=content, vulnerability_ids=vulnerability_ids or [])
+        ids = list(vulnerability_ids or [])
+        if ctx.state:
+            for existing in ctx.state.tests:
+                if existing.path == path:
+                    ids = list(dict.fromkeys([*existing.vulnerability_ids, *ids]))
+        return record("propose_test", path=path, content=content, vulnerability_ids=ids, base_content=ctx.files.get(path))
 
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
-    return [available[name] for name in TOOLS_FOR[actor]]
+    return [available[name] for name in TOOLS_FOR[actor] if only is None or name in only]

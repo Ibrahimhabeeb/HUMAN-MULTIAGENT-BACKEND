@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from models import ConsentRecord, Participant, SurveyResponse, Workspace
 from models.common import as_utc, utc_now
 from schemas.security_state import SecurityState
-from schemas.study import Mode, Screen
+from schemas.study import Mode, Screen, TaskId
 from services import content, workspace
 from services.errors import ConflictError
 from services.events import log_event
@@ -17,6 +17,7 @@ from services.events import log_event
 class _Pending:
     pilot: bool
     screen: Literal["information", "consent"]
+    task_id: TaskId
 
 
 class _Memory:
@@ -53,7 +54,7 @@ def _workspaces(db: Session, code: str) -> dict[str, Workspace]:
     return {ws.mode: ws for ws in rows}
 
 
-def _open_mode(db: Session, participant: Participant, mode: Mode) -> Workspace:
+def _open_mode(db: Session, participant: Participant, mode: Mode, task_id: TaskId = "A") -> Workspace:
     existing = _workspaces(db, participant.code)
     if mode in existing:
         return existing[mode]
@@ -62,7 +63,7 @@ def _open_mode(db: Session, participant: Participant, mode: Mode) -> Workspace:
     ws = Workspace(
         participant_code=participant.code,
         mode=mode,
-        task_id="A" if not existing else "B",
+        task_id=next(iter(existing.values())).task_id if existing else task_id,
         part=len(existing) + 1,
         security_state=SecurityState().model_dump(mode="json") if mode == "team" else {},
         notes="",
@@ -131,7 +132,13 @@ def get_state(db: Session) -> dict:
     participant = active_participant(db)
     if participant is None:
         if _memory.pending is not None:
-            return {"screen": _memory.pending.screen, "mode": _memory.switch, "pilot": _memory.pending.pilot}
+            task_id = _memory.pending.task_id
+            return {
+                "screen": _memory.pending.screen,
+                "mode": _memory.switch,
+                "pilot": _memory.pending.pilot,
+                "task": {"id": task_id, "label": workspace.task_label(task_id)},
+            }
         return {"screen": "start", "mode": _memory.switch}
 
     parts = _workspaces(db, participant.code)
@@ -159,10 +166,10 @@ def get_state(db: Session) -> dict:
 # ---- before consent (memory only) ---------------------------------------------------------------
 
 
-def start(db: Session, pilot: bool) -> None:
+def start(db: Session, pilot: bool, task_id: TaskId = "A") -> None:
     if active_participant(db) is not None or _memory.pending is not None:
         raise ConflictError("A session is already in progress. Use Restart first.")
-    _memory.pending = _Pending(pilot=pilot, screen="information")
+    _memory.pending = _Pending(pilot=pilot, screen="information", task_id=task_id)
 
 
 def continue_to_consent() -> None:
@@ -206,7 +213,7 @@ def give_consent(db: Session, consent_version: str) -> Participant:
             mode=participant.mode,
             detail={"pilot": pending.pilot, "consent_version": consent_version},
         )
-        _open_mode(db, participant, participant.mode)
+        _open_mode(db, participant, participant.mode, pending.task_id)
         db.commit()
     except Exception:
         db.rollback()

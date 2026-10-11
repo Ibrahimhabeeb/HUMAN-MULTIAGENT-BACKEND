@@ -94,10 +94,27 @@ def test_suggested_risks_go_straight_into_the_state_without_a_decision(client, d
 
 
 def test_an_approved_fix_never_changes_the_code(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
     original = client.get("/workspace/files/app/auth.py").json()["content"]
     approval_id = propose("reviewer", "suggest_fix", FIX)
     assert decide(client, approval_id, "approve").json()["status"] == "approved"
     assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+
+
+def test_a_legacy_pending_finding_can_be_approved_without_its_risk(client, db, team, propose):
+    approval_id = propose("reviewer", "propose_vulnerability", VULNERABILITY)
+    approval = db.get(Approval, approval_id)
+    legacy_proposal = {**approval.proposal, "risk_id": "R99"}
+    approval.proposal = legacy_proposal
+    db.commit()
+
+    decided = decide(client, approval_id, "approve")
+    assert decided.status_code == 200
+    assert decided.json()["proposal"] == decided.json()["final_proposal"] == legacy_proposal
+    vulnerability = state(client)["vulnerabilities"][0]
+    assert vulnerability["description"] == VULNERABILITY["description"]
+    assert "risk_id" not in vulnerability
+    assert state(client)["risks"] == []
 
 
 def test_an_approved_fix_becomes_a_mitigation_for_its_vulnerability(client, team, propose):
@@ -109,15 +126,28 @@ def test_an_approved_fix_becomes_a_mitigation_for_its_vulnerability(client, team
     assert mitigation["description"] == FIX["why"]
 
 
-def test_a_fix_for_something_not_in_the_state_becomes_an_unlinked_mitigation(client, team, propose):
-    decide(client, propose("reviewer", "suggest_fix", {**FIX, "vulnerability": "SQL injection in login"}), "approve")
-    assert state(client)["mitigations"][0]["vulnerability_id"] is None
+@pytest.mark.parametrize("target", ["SQL injection in login", "V99"])
+def test_a_fix_without_an_existing_vulnerability_cannot_be_approved(client, team, propose, target):
+    approval_id = propose("reviewer", "suggest_fix", {**FIX, "vulnerability": target})
+    assert decide(client, approval_id, "approve").status_code == 404
+    assert client.get(f"/approvals/{approval_id}").json()["status"] == "pending"
+    assert state(client)["mitigations"] == []
+    assert decide(client, approval_id, "reject").status_code == 200
+
+
+def test_a_fix_cannot_be_approved_after_its_vulnerability_is_deleted(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    approval_id = propose("reviewer", "suggest_fix", FIX)
+    assert client.delete("/workspace/state/vulnerabilities/V1").status_code == 204
+    assert decide(client, approval_id, "approve").status_code == 404
+    assert client.get(f"/approvals/{approval_id}").json()["status"] == "pending"
+    assert state(client)["mitigations"] == []
 
 
 def test_approved_test_file_is_added_and_linked_to_its_vulnerabilities(client, db, team, propose):
     decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
     approval_id = propose("verifier", "propose_test", TEST_FILE)
-    assert not Path(get_settings().workspaces_dir, "P01_A", "tests", "test_security.py").exists()
+    assert not Path(get_settings().workspaces_dir, "P01_A_team", "tests", "test_security.py").exists()
 
     decide(client, approval_id, "approve")
     assert client.get("/workspace/files/tests/test_security.py").json()["content"] == TEST_FILE["content"]
@@ -165,6 +195,14 @@ def test_single_mode_allows_only_fixes_and_tests(client, single, propose):
     assert client.get("/workspace/files/tests/test_security.py").status_code == 200
     fix = {**FIX, "vulnerability": "SQL injection"}
     assert decide(client, propose("assistant", "suggest_fix", fix), "approve").json()["result"] is None  # no state
+
+
+@pytest.mark.parametrize("action", ["propose_assumption", "propose_risk", "propose_vulnerability", "mark_resolved"])
+def test_single_mode_cannot_request_security_state_changes(client, db, single, propose, action):
+    with pytest.raises(ConflictError, match="not available in single mode"):
+        propose("assistant", action, {})
+    assert client.get("/approvals").json() == []
+    assert study.current_workspace(db).security_state == {}
 
 
 def test_requests_and_decisions_are_logged(client, db, team, propose):

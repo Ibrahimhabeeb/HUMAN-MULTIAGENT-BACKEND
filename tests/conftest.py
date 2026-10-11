@@ -46,11 +46,31 @@ def client(db):
 
 
 @pytest.fixture
+def concurrent_client(db, tmp_path):
+    # Concurrency tests need a distinct session/connection per request, as in the running server.
+    engine = create_engine(f"sqlite:///{(tmp_path / 'concurrent.db').as_posix()}", connect_args={"check_same_thread": False})
+    init_db(engine)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+
+    def isolated_db():
+        with sessions() as session:
+            yield session
+
+    previous = app.dependency_overrides[get_db]
+    app.dependency_overrides[get_db] = isolated_db
+    http = TestClient(app)
+    yield http
+    http.close()
+    app.dependency_overrides[get_db] = previous
+    engine.dispose()
+
+
+@pytest.fixture
 def enrol(client):
     # Walks a participant through start -> information -> consent, starting in the given mode.
-    def _enrol(pilot=False, mode="team"):
+    def _enrol(pilot=False, mode="team", task_id="A"):
         client.post("/study/mode", json={"mode": mode})
-        client.post("/study/start", json={"pilot": pilot})
+        client.post("/study/start", json={"pilot": pilot, "task_id": task_id})
         client.post("/study/continue")
         return client.post("/study/consent", json={"consent_version": content.load("consent")[0]}).json()
 

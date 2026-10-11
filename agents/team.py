@@ -30,8 +30,8 @@ from services.errors import ConflictError
 from services.events import log_event
 
 # Team mode is one conversation. Each developer message carries a route: the agents that answer it, in order.
-# Every call answers with one agent; when more are on the route, the frontend asks for the next one (next_reply),
-# so the chat shows each answer as soon as it is ready.
+# The initial plan and threat analysis run sequentially in one request, with no human handoff.
+# Each reply is saved separately, so next_reply can recover an interrupted route without repeating saved work.
 THREAD = "team"
 NO_VULNERABILITIES_NOTICE = (
     "The Test/Verifier writes tests against approved vulnerabilities. There are none yet, so it had nothing to test."
@@ -68,12 +68,9 @@ def _vulnerability_list(state: SecurityState) -> str:
 
 
 def _in_the_state(state: SecurityState | None) -> str:
-    # What the Code Reviewer can link its proposals to, so it never has to guess an id.
+    # Approved findings and their fixes/tests, so the Code Reviewer can avoid duplicates and re-check them.
     state = state or SecurityState()
-    return (
-        f"The risks in the security state:\n{_risk_list(state) or '(none yet)'}\n\n"
-        f"The approved vulnerabilities:\n{_vulnerability_list(state) or '(none yet)'}"
-    )
+    return f"The approved vulnerabilities:\n{_vulnerability_list(state) or '(none yet)'}"
 
 
 def _describe(earlier: Earlier) -> str | None:
@@ -118,7 +115,10 @@ def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
     if asked is None:
         return None
     answered = {m.data.get("agent") for m in messages if m.data.get("reply_to") == asked.id}
-    agent = next((a for a in asked.data.get("route", []) if a not in answered), None)
+    agent = next((
+        a for a in asked.data.get("route", [])
+        if a not in answered and not ("snapshot" in asked.data and a == "verifier")
+    ), None)
     return (asked, agent) if agent else None
 
 
@@ -140,6 +140,16 @@ def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: Agent
         text = asked.content
         for reply in replies:
             text += f"\n\n[{NAMES[reply.data['agent']]} already answered this]\n{reply.content}"
+        if agent in ("planner", "threat_modeller"):
+            text += f"\n\nTask description (README.md):\n{ctx.task_description}"
+            text += "\n\nProject files:\n" + "\n".join(sorted(ctx.files))
+            if asked.data.get("route") == FIRST_ROUTE:
+                instruction = (
+                    "Give the implementation steps now. The Threat Modeller will analyse the threats after your plan."
+                    if agent == "planner" else
+                    "Analyse potential threats in this task now, building on the plan above. Do not repeat the plan."
+                )
+                text += f"\n\n{instruction} The handoff is automatic; no developer confirmation is needed."
         if agent == "reviewer":
             text += f"\n\nThe developer's current code:\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
         if agent == "threat_modeller":
@@ -218,8 +228,13 @@ def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
     # Saved before any agent answers, so if one fails the developer can retry with next_reply.
     asked = chat.add_message(db, ws, THREAD, "human", content, data)
     db.commit()
-    result = _answer(db, ws, asked, data["route"][0])
-    return {**result, "messages": [asked, *result["messages"]]}
+    replies = [asked]
+    proposals = []
+    for agent in data["route"]:
+        result = _answer(db, ws, asked, agent)
+        replies.extend(result["messages"])
+        proposals.extend(result["approvals"])
+    return {"messages": replies, "approvals": proposals, "next": next_agent(db, ws)}
 
 
 def review(db: Session, ws: Workspace) -> dict:
