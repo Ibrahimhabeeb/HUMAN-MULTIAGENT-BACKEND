@@ -71,7 +71,7 @@ def _in_the_state(state: SecurityState | None) -> str:
     # What the Code Reviewer can link its proposals to, so it never has to guess an id.
     state = state or SecurityState()
     return (
-        f"The approved risks:\n{_risk_list(state) or '(none yet)'}\n\n"
+        f"The risks in the security state:\n{_risk_list(state) or '(none yet)'}\n\n"
         f"The approved vulnerabilities:\n{_vulnerability_list(state) or '(none yet)'}"
     )
 
@@ -142,6 +142,9 @@ def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: Agent
             text += f"\n\n[{NAMES[reply.data['agent']]} already answered this]\n{reply.content}"
         if agent == "reviewer":
             text += f"\n\nThe developer's current code:\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
+        if agent == "threat_modeller":
+            risks = _risk_list(ctx.state or SecurityState()) or "(none yet)"
+            text += f"\n\nThe risks already in the security state (don't suggest these again):\n{risks}"
     not_approved = _not_approved(ctx, agent)
     return f"{text}\n\n{not_approved}" if not_approved else text
 

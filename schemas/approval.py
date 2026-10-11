@@ -14,7 +14,7 @@ ActionType = Literal[
     "propose_test",
     "suggest_fix",
 ]
-ApprovalStatus = Literal["pending", "approved", "rejected"]
+ApprovalStatus = Literal["pending", "approved", "rejected", "suggested"]
 Decision = Literal["approve", "reject"]  # proposals are never edited: the human changes approved items themselves
 
 
@@ -49,6 +49,10 @@ PROPOSAL_SCHEMAS: dict[str, type[BaseModel]] = {
 
 # Single mode has no shared security state, so only fixes and tests can be proposed there.
 SINGLE_MODE_ACTIONS = {"suggest_fix", "propose_test"}
+
+# The Threat Modeller's risks need no decision: each goes straight into the security state, and the Approvals panel
+# shows it as "suggested", without Approve or Reject.
+SUGGESTIONS = {"propose_risk"}
 
 
 class ApprovalOut(BaseModel):

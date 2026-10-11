@@ -8,6 +8,7 @@ from models.common import as_utc, utc_now
 from schemas.approval import (
     PROPOSAL_SCHEMAS,
     SINGLE_MODE_ACTIONS,
+    SUGGESTIONS,
     ActionType,
     Decision,
     ProposedTest,
@@ -27,7 +28,8 @@ _STATUS_FOR = {"approve": "approved", "reject": "rejected"}
 
 
 def request_approval(db: Session, ws: Workspace, actor: str, action_type: ActionType, proposal: dict) -> Approval:
-    """Every agent tool call that would change something ends up here instead of changing it."""
+    """Every agent tool call that would change something ends up here. It waits for the human's decision,
+    except a suggested risk, which goes straight into the security state."""
     if ws.mode == "single" and action_type not in SINGLE_MODE_ACTIONS:
         raise ConflictError(f"{action_type} is not available in single mode")
     data = PROPOSAL_SCHEMAS[action_type].model_validate(proposal)
@@ -41,16 +43,27 @@ def request_approval(db: Session, ws: Workspace, actor: str, action_type: Action
     )
     db.add(approval)
     db.flush()
-    log_event(
-        db,
-        ws.participant_code,
-        "approval_requested",
-        actor=actor,
-        mode=ws.mode,
-        detail={"approval_id": approval.id, "proposer": actor, "action_type": action_type},
-    )
+    if action_type in SUGGESTIONS:
+        _suggest(db, ws, approval)
+    else:
+        log_event(
+            db,
+            ws.participant_code,
+            "approval_requested",
+            actor=actor,
+            mode=ws.mode,
+            detail={"approval_id": approval.id, "proposer": actor, "action_type": action_type},
+        )
     db.commit()
     return approval
+
+
+def _suggest(db: Session, ws: Workspace, approval: Approval) -> None:
+    approval.result = _apply(db, ws, approval, approval.proposal)
+    approval.final_proposal = approval.proposal
+    approval.status = "suggested"
+    detail = {"category": "risks", "id": approval.result["item_id"], "approval_id": approval.id}
+    log_event(db, ws.participant_code, "state_item_added", actor=approval.actor, mode=ws.mode, detail=detail)
 
 
 def list_approvals(db: Session, ws: Workspace, status: str | None = None) -> list[Approval]:
@@ -121,6 +134,8 @@ def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]
 def decide(db: Session, ws: Workspace, approval_id: int, decision: Decision) -> Approval:
     # Approve or reject only: a proposal is never edited. The human changes approved items themselves.
     approval = get_approval(db, ws, approval_id)
+    if approval.status == "suggested":
+        raise ConflictError("A suggested risk is already in the security state; there is nothing to approve")
     if approval.status != "pending":
         raise ConflictError(f"Approval {approval_id} has already been decided")
     final: dict[str, Any] | None = approval.proposal if decision == "approve" else None

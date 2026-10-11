@@ -116,20 +116,39 @@ def test_later_messages_are_routed_to_one_agent(client, db, team, model):
     assert routed.detail == {"agent": "reviewer", "reason": "you asked about your code"}
 
 
-def test_agent_proposals_wait_for_the_humans_approval(client, team, model):
+def test_suggested_risks_go_straight_into_the_state_and_assumptions_wait(client, team, model):
+    replies = []
+
     def threat_modeller(tools):
-        tools["propose_risk"].invoke(RISK)
-        tools["propose_assumption"].invoke({"text": "Passwords are stored only as hashes"})
-        return "I proposed a risk and an assumption."
+        replies.append(tools["propose_risk"].invoke(RISK))
+        replies.append(tools["propose_assumption"].invoke({"text": "Passwords are stored only as hashes"}))
+        replies.append(tools["propose_risk"].invoke(RISK))
+        return "I suggested a risk and proposed an assumption."
 
     model.scripts["threat_modeller"] = threat_modeller
     say(client, "I need to build the login")
     reply = next_reply(client).json()
     risk, assumption = reply["approvals"]
-    assert (risk["actor"], risk["action_type"], risk["status"]) == ("threat_modeller", "propose_risk", "pending")
+    assert (risk["actor"], risk["action_type"], risk["status"]) == ("threat_modeller", "propose_risk", "suggested")
+    assert (assumption["action_type"], assumption["status"]) == ("propose_assumption", "pending")
     assert reply["messages"][0]["data"]["approval_ids"] == [risk["id"], assumption["id"]]
-    assert client.get("/workspace/state").json()["risks"] == []  # nothing changes before approval
-    assert decide(client, risk["id"]).json()["result"] == {"item_id": "R1"}
+    assert replies == [
+        "Recorded. It goes straight into the security state as a suggested risk.",
+        RECORDED,
+        "Not recorded: you already suggested this risk in this reply.",
+    ]
+    state = client.get("/workspace/state").json()
+    assert ([r["id"] for r in state["risks"]], state["assumptions"]) == (["R1"], [])  # only the risk needs no approval
+    assert decide(client, risk["id"]).status_code == 409
+    assert decide(client, assumption["id"]).json()["result"] == {"item_id": "A1"}
+
+    model.route_to = ("threat_modeller", "you asked about risks")
+    replies.clear()
+    say(client, "Any other risks?")
+    assert replies[0] == "Not recorded: this risk is already in the security state as R1."
+    assert "The risks already in the security state (don't suggest these again):\n- R1" in model.last(
+        "threat_modeller"
+    )["messages"][-1]
 
     # Risks come from the Threat Modeller; vulnerabilities and their fixes from the Code Reviewer.
     assert model.last("threat_modeller")["tools"] == [
@@ -155,14 +174,14 @@ def test_the_code_reviewer_links_only_to_what_is_in_the_state(client, team, mode
     model.scripts["reviewer"] = reviewer
     reply = client.post("/chat/review").json()
     assert replies == [
-        "Not recorded: R7 is not an approved risk (approved risks: R1). Use one of those or leave risk_id empty.",
+        "Not recorded: R7 is not a risk in the security state (risks: R1). Use one of those or leave risk_id empty.",
         "Not recorded: V9 is not in the security state.",
         RECORDED,
     ]
     assert [a["action_type"] for a in reply["approvals"]] == ["propose_vulnerability"]
 
     sent = model.last("reviewer")["messages"][-1]
-    assert "The approved risks:\n- R1 (High, CWE-89, open): SQL injection in login" in sent
+    assert "The risks in the security state:\n- R1 (High, CWE-89, open): SQL injection in login" in sent
     assert "The approved vulnerabilities:\n(none yet)" in sent
 
 

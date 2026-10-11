@@ -2,11 +2,11 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
 from agents.context import AgentContext, Proposal, numbered
-from schemas.approval import PROPOSAL_SCHEMAS
+from schemas.approval import PROPOSAL_SCHEMAS, SUGGESTIONS
 from schemas.security_state import SecurityState, Severity, StateItem
 
-# Which tools each agent gets. Reading tools only look at the run's snapshot;
-# every other tool records a proposal that waits for the human's approval.
+# Which tools each agent gets. Reading tools only look at the run's snapshot; every other tool records a proposal
+# that waits for the human's approval, except a suggested risk, which goes straight into the security state.
 TOOLS_FOR: dict[str, list[str]] = {
     "planner": ["list_files", "read_file", "read_task_description"],
     "threat_modeller": [
@@ -42,11 +42,25 @@ def _same_place(a: dict, b: dict) -> bool:
     return a.get("file") is not None and all(a.get(key) == b.get(key) for key in ("file", "line", "cwe"))
 
 
+def _same_text(a: str, b: str) -> bool:
+    return " ".join(a.lower().split()) == " ".join(b.lower().split())
+
+
+def _risk_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    for risk in state.risks:
+        if _same_text(risk.description, proposal["description"]):
+            return f"this risk is already in the security state as {risk.id}."
+    earlier = [p.proposal["description"] for p in ctx.proposals if p.action_type == "propose_risk"]
+    if any(_same_text(description, proposal["description"]) for description in earlier):
+        return "you already suggested this risk in this reply."
+    return None
+
+
 def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
     risk_id = proposal["risk_id"]
     if risk_id is not None and not any(risk.id == risk_id for risk in state.risks):
         return (
-            f"{risk_id} is not an approved risk (approved risks: {_ids(state.risks)}). "
+            f"{risk_id} is not a risk in the security state (risks: {_ids(state.risks)}). "
             "Use one of those or leave risk_id empty."
         )
     for v in state.vulnerabilities:
@@ -118,6 +132,7 @@ def _resolve_problem(ctx: AgentContext, state: SecurityState, proposal: dict) ->
 
 
 _CHECKS = {
+    "propose_risk": _risk_problem,
     "propose_vulnerability": _vulnerability_problem,
     "suggest_fix": _fix_problem,
     "propose_test": _test_problem,
@@ -126,7 +141,7 @@ _CHECKS = {
 
 
 def _problem(ctx: AgentContext, action_type: str, proposal: dict) -> str | None:
-    # Team mode: a proposal may only point at approved items, and each thing is proposed once: not again while it
+    # Team mode: a proposal may only point at items in the state, and each thing is proposed once: not again while it
     # waits for the developer's decision, after it was rejected, or once it is in the state. Saying so straight
     # away lets the agent correct it before the developer sees it.
     check = _CHECKS.get(action_type)
@@ -143,6 +158,8 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
         if problem:
             return f"Not recorded: {problem}"
         ctx.proposals.append(Proposal(actor, action_type, data.model_dump(mode="json")))
+        if action_type in SUGGESTIONS and ctx.state:
+            return "Recorded. It goes straight into the security state as a suggested risk."
         return "Recorded. It waits for the developer's approval."
 
     @tool
@@ -164,7 +181,7 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
 
     @tool
     def get_security_state() -> str:
-        """Get the approved shared security state: assumptions, risks, vulnerabilities, mitigations and tests."""
+        """Get the shared security state: assumptions, risks, vulnerabilities, mitigations and tests."""
         return ctx.state.model_dump_json(indent=1, exclude={"counters"}) if ctx.state else "No security state."
 
     @tool
@@ -176,7 +193,8 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
     def propose_risk(
         description: str, severity: Severity, cwe: str | None = None, owasp: str | None = None, stride: str | None = None
     ) -> str:
-        """Propose a security risk. cwe looks like "CWE-89"; owasp is an OWASP Top 10 category; stride a STRIDE category."""
+        """Suggest a security risk; it goes straight into the security state. cwe looks like "CWE-89"; owasp is an
+        OWASP Top 10 category; stride a STRIDE category."""
         return record("propose_risk", description=description, severity=severity, cwe=cwe, owasp=owasp, stride=stride)
 
     @tool
@@ -189,7 +207,7 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
         risk_id: str | None = None,
     ) -> str:
         """Propose a vulnerability: a weakness in the code, with its file and line. Give risk_id only if it is an
-        instance of one of the approved risks; otherwise leave it empty."""
+        instance of one of the risks in the security state; otherwise leave it empty."""
         return record(
             "propose_vulnerability",
             description=description,
@@ -202,8 +220,8 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
 
     @tool
     def suggest_fix(vulnerability: str, file: str, location: str, code: str, why: str) -> str:
-        """Suggest a fix: what it fixes (a vulnerability like "V2", "#1" for one you proposed in this reply, or a
-        short description), the file, where the code goes, the code, and why."""
+        """Suggest a fix: what it fixes (an approved vulnerability's id such as "V2" when there is a security state,
+        otherwise a short description), the file, where the code goes, the code, and why."""
         return record("suggest_fix", vulnerability=vulnerability, file=file, location=location, code=code, why=why)
 
     @tool
