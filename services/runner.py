@@ -18,6 +18,9 @@ from services.events import log_event
 MAX_OUTPUT_CHARS = 4000
 MAX_DETAILS_CHARS = 3000
 _SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^LLM_|^OPENAI|^ANTHROPIC|^PYTEST", re.IGNORECASE)
+_EXCEPTION = re.compile(r"^\s*(?:E\s+)?(?P<type>[\w.]+(?:Error|Exception)):\s*(?P<message>[^\n]*)", re.MULTILINE)
+_SYNTAX_LOCATION = re.compile(r'^\s*(?:E\s+)?File "(?P<file>[^"\n]+)", line (?P<line>\d+)', re.MULTILINE)
+_FRAME_LOCATION = re.compile(r"^(?P<file>[^\n]+\.py):(?P<line>\d+): in ", re.MULTILINE)
 _PROBLEMS = {"failure": "failed", "error": "error", "skipped": "skipped"}
 # The run's own pytest settings, so the backend's (pyproject.toml) never apply to a workspace.
 _CONFIG = "[pytest]\njunit_family = xunit1\n"
@@ -29,7 +32,10 @@ _OWN_PROCESS_GROUP: dict = (
 
 def _environment() -> dict[str, str]:
     # The participant's code runs in this process, so it gets none of the server's keys or other secrets.
-    env = {name: value for name, value in os.environ.items() if not _SECRET.search(name)}
+    env = {
+        name: value for name, value in os.environ.items()
+        if not _SECRET.search(name) and name.upper() not in {"PYTHONHOME", "PYTHONPATH"}
+    }
     env.update(PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
     return env
 
@@ -39,7 +45,26 @@ def _tail(*parts: str | bytes | None) -> str:
     return text[-MAX_OUTPUT_CHARS:]
 
 
-def _case(element: ET.Element) -> CaseResult:
+def _collection_problem(details: str, folder: Path) -> str | None:
+    exceptions = list(_EXCEPTION.finditer(details))
+    if not exceptions:
+        return None
+    error = exceptions[-1]
+    locations = sorted([*_SYNTAX_LOCATION.finditer(details), *_FRAME_LOCATION.finditer(details)], key=lambda m: m.start())
+    location = ""
+    for match in reversed(locations):
+        try:
+            path = Path(match["file"])
+            path = (path if path.is_absolute() else folder / path).resolve()
+        except (OSError, ValueError):
+            continue
+        if path.is_relative_to(folder):
+            location = f" in {path.relative_to(folder).as_posix()}:{match['line']}"
+            break
+    return f"{error['type']}{location}: {error['message'].strip()}"
+
+
+def _case(element: ET.Element, folder: Path) -> CaseResult:
     file = element.get("file", "").replace("\\", "/")
     case = CaseResult(file=file, name=element.get("name") or file, outcome="passed")
     for tag, outcome in _PROBLEMS.items():
@@ -48,6 +73,8 @@ def _case(element: ET.Element) -> CaseResult:
             case.outcome = outcome
             case.message = problem.get("message")
             case.details = (problem.text or "").strip()[-MAX_DETAILS_CHARS:] or None
+            if tag == "error" and case.message == "collection failure":
+                case.message = _collection_problem(problem.text or "", folder) or case.message
             break
     return case
 
@@ -74,7 +101,7 @@ def _pytest(folder: Path) -> tuple[int | None, list[CaseResult], str]:
             )
         except subprocess.TimeoutExpired as e:
             return None, [], _tail(e.stdout, e.stderr)
-        cases = [_case(element) for element in ET.parse(report).iter("testcase")] if report.is_file() else []
+        cases = [_case(element, folder) for element in ET.parse(report).iter("testcase")] if report.is_file() else []
         return done.returncode, cases, _tail(done.stdout, done.stderr)
 
 
@@ -83,7 +110,11 @@ def _summary(code: int | None, counts: dict[str, int]) -> tuple[str, str]:
         return "timed_out", f"The tests took longer than {get_settings().test_timeout_seconds} seconds and were stopped."
     if code == 5:
         return "no_tests", "There are no tests to run yet."
-    if code not in (0, 1, 2):  # 3 and 4: pytest itself failed, or was called wrongly
+    if code == 2:
+        if counts["error"]:
+            return "error", "Tests could not be collected. Fix the reported code or import errors below, then run tests again."
+        return "error", "The test run was interrupted; see its output."
+    if code not in (0, 1):  # 3 and 4: pytest itself failed, or was called wrongly
         return "error", "pytest could not run the tests; see its output."
     parts = [f"{n} {'errors' if outcome == 'error' and n > 1 else outcome}" for outcome, n in counts.items() if n]
     return ("passed" if code == 0 else "failed"), ", ".join(parts) or "No tests ran."

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "bandit>=1.9.4",
+    "bcrypt>=5.0.0",
     "fastapi>=0.141.1",
     "langchain>=1.4.3",
     "langchain-core>=1.6.5",

@@ -1,6 +1,10 @@
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
 from config import get_settings
 from models import Event
-from services import approvals, study
+from services import approvals, runner, study
 
 VULNERABILITY = {"description": "Query built from user input", "severity": "High", "file": "app/auth.py"}
 PASSING = "def test_ok():\n    assert True\n"
@@ -42,7 +46,8 @@ def test_says_so_when_there_are_no_tests(client, single):
 def test_a_broken_test_file_is_reported(client, single):
     write(client, "tests/test_broken.py", "def test_x(:\n")
     result = run_tests(client).json()
-    assert result["status"] == "failed"
+    assert result["status"] == "error"
+    assert "could not be collected" in result["message"]
     assert [t["outcome"] for t in result["tests"] if t["file"] == "tests/test_broken.py"] == ["error"]
 
 
@@ -83,3 +88,61 @@ def test_team_mode_keeps_each_security_tests_latest_result(client, db, team):
 def test_a_finished_part_cannot_run_tests(client, single):
     client.post("/study/done")
     assert run_tests(client).status_code == 409
+
+
+def test_source_indentation_error_points_to_the_source_not_pytest(client, single):
+    content = "GENERIC_LOGIN_ERROR = 'Invalid username or password'\n\n    time_limit = 15\n"
+    write(client, "app/auth.py", content)
+    result = run_tests(client).json()
+    assert result["status"] == "error"
+    assert result["counts"]["passed"] == result["counts"]["failed"] == 0
+    assert "Tests could not be collected" in result["message"]
+    (case,) = result["tests"]
+    assert case["file"] == "tests/test_functional.py"
+    assert case["message"] == "IndentationError in app/auth.py:3: unexpected indent"
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == content
+
+
+def test_missing_workspace_import_is_identified_as_an_import_error(client, single):
+    write(client, "app/auth.py", "import nonexistent_workspace_dependency\n")
+    result = run_tests(client).json()
+    assert result["status"] == "error"
+    assert result["tests"][0]["message"] == (
+        "ModuleNotFoundError in app/auth.py:1: No module named 'nonexistent_workspace_dependency'"
+    )
+
+
+def test_valid_login_code_can_use_bcrypt_in_the_workspace_environment(client, single):
+    write(client, "app/auth.py", '''import bcrypt
+
+
+def register_user(conn, username, password):
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=4)).decode()
+    conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed))
+    conn.commit()
+
+
+def login(conn, username, password):
+    row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone()
+    if row and bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
+        return True, "Logged in"
+    return False, "Invalid username or password"
+''')
+    result = run_tests(client).json()
+    assert result["status"] == "passed"
+    assert result["counts"] == {"passed": 2, "failed": 0, "error": 0, "skipped": 0}
+
+
+def test_workspace_tests_use_the_server_python_and_ignore_inherited_python_paths(client, single, monkeypatch):
+    monkeypatch.setenv("PYTHONHOME", "not-a-python-installation")
+    monkeypatch.setenv("PYTHONPATH", "not-the-workspace")
+    original = runner.subprocess.run
+    with patch.object(runner.subprocess, "run", wraps=original) as launch:
+        response = run_tests(client)
+    assert response.status_code == 200
+    command = launch.call_args.args[0]
+    assert Path(command[0]) == Path(sys.executable)
+    assert command[1:3] == ["-m", "pytest"]
+    env = launch.call_args.kwargs["env"]
+    assert "PYTHONHOME" not in env and "PYTHONPATH" not in env
+    assert response.json()["counts"]["failed"] == 2  # functional tests ran, not an environment startup error
