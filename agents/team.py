@@ -27,15 +27,19 @@ from services.events import log_event
 # Every call answers with one agent; when more are on the route, the frontend asks for the next one (next_reply),
 # so the chat shows each answer as soon as it is ready.
 THREAD = "team"
-NO_RISKS_NOTICE = "The Test/Verifier writes security tests from approved risks. There are none yet, so it had nothing to test."
+NO_VULNERABILITIES_NOTICE = (
+    "The Test/Verifier writes tests against approved vulnerabilities. There are none yet, so it had nothing to test."
+)
 
 
-def _risk_list(state: SecurityState) -> str:
-    tested = {risk_id: test.path for test in state.tests for risk_id in test.risk_ids}
+def _vulnerability_list(state: SecurityState) -> str:
+    tested = {found: test.path for test in state.tests for found in test.vulnerability_ids}
     lines = []
-    for risk in state.risks:
-        line = f"- {risk.id} ({risk.severity}{', ' + risk.cwe if risk.cwe else ''}): {risk.description}"
-        lines.append(line + (f" [already tested in {tested[risk.id]}]" if risk.id in tested else ""))
+    for v in state.vulnerabilities:
+        where = f"{v.file}:{v.line}" if v.file and v.line else v.file
+        details = ", ".join(part for part in (v.severity, v.cwe, where, v.status) if part)
+        line = f"- {v.id} ({details}): {v.description}"
+        lines.append(line + (f" [already tested in {tested[v.id]}]" if v.id in tested else ""))
     return "\n".join(lines)
 
 
@@ -51,13 +55,16 @@ def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
 
 def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: AgentContext) -> str:
     # What the agent is given: the developer's message and what the others already answered; the Code Reviewer
-    # always gets the current code, the Test/Verifier the approved risks.
+    # always gets the current code, the Test/Verifier the approved vulnerabilities.
     review = "snapshot" in asked.data
     if agent == "verifier":
-        risks = _risk_list(ctx.state or SecurityState()) or "(none yet)"
+        vulnerabilities = _vulnerability_list(ctx.state or SecurityState()) or "(none yet)"
         if review:
-            return f"The developer asked for a review. Write security tests for the approved risks:\n{risks}"
-        return f"{asked.content}\n\nThe approved risks:\n{risks}"
+            return (
+                "The developer asked for a review. Write security tests against the approved vulnerabilities:\n"
+                + vulnerabilities
+            )
+        return f"{asked.content}\n\nThe approved vulnerabilities:\n{vulnerabilities}"
     if agent == "reviewer" and review:
         return f"{REVIEW_MESSAGE}\n\n{code_listing(ctx.files)}"
 
@@ -75,8 +82,8 @@ def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> di
     reply_data = {"agent": agent, "reply_to": asked.id}
     ctx = build_context(ws)
 
-    if agent == "verifier" and not (ctx.state and ctx.state.risks):
-        notice = chat.add_message(db, ws, THREAD, "system", NO_RISKS_NOTICE, reply_data)
+    if agent == "verifier" and not (ctx.state and ctx.state.vulnerabilities):
+        notice = chat.add_message(db, ws, THREAD, "system", NO_VULNERABILITIES_NOTICE, reply_data)
         db.commit()
         return {"messages": [notice], "approvals": [], "next": next_agent(db, ws)}
 

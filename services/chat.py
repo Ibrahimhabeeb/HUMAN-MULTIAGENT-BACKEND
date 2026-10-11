@@ -59,14 +59,14 @@ def as_langchain(messages: list[Message], me: str | None = None) -> list[BaseMes
 
 
 def save_proposals(db: Session, ws: Workspace, proposals: list[Proposal]) -> list[Approval]:
-    # Turns an agent's collected proposals into approval requests. A "#n" reference to another proposal
-    # from the same run becomes "approval:<id>", resolved to a real item id once that one is approved.
+    # Turns an agent's collected proposals into approval requests. A fix for a vulnerability proposed in the same
+    # run ("#n") refers to it as "approval:<id>", which becomes the vulnerability's id once that one is approved.
     saved: list[Approval] = []
     for proposal in proposals:
         data = dict(proposal.proposal)
-        for field in ("risk_id", "finding"):
-            match = _LOCAL_REF.match(str(data.get(field) or "").strip())
-            if match and 0 < int(match.group(1)) <= len(saved):
-                data[field] = f"approval:{saved[int(match.group(1)) - 1].id}"
+        match = _LOCAL_REF.match(str(data.get("vulnerability") or "").strip())
+        earlier = saved[int(match.group(1)) - 1] if match and 0 < int(match.group(1)) <= len(saved) else None
+        if earlier is not None and earlier.action_type == "propose_vulnerability":
+            data["vulnerability"] = f"approval:{earlier.id}"
         saved.append(approvals.request_approval(db, ws, proposal.actor, proposal.action_type, data))  # type: ignore[arg-type]
     return saved

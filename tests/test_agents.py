@@ -3,13 +3,15 @@ import pytest
 from agents import runtime
 from agents.roles import ASSISTANT_PROMPT, REVIEW_MESSAGE, SPECIALISTS, team_prompt
 from agents.runtime import RouteDecision
+from agents.team import NO_VULNERABILITIES_NOTICE
 from config import get_settings
 from models import Event
 
 ROLE_OF_PROMPT = {team_prompt(role): role for role in SPECIALISTS} | {ASSISTANT_PROMPT: "assistant"}
 RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
+VULNERABILITY = {"description": "Query built from user input", "severity": "High", "file": "app/auth.py", "line": 12}
 FIX = {
-    "finding": "#1",
+    "vulnerability": "#1",
     "file": "app/auth.py",
     "location": "login(), the SELECT query",
     "code": 'cur.execute("SELECT * FROM users WHERE username = ?", (username,))',
@@ -116,54 +118,89 @@ def test_later_messages_are_routed_to_one_agent(client, db, team, model):
 def test_agent_proposals_wait_for_the_humans_approval(client, team, model):
     def threat_modeller(tools):
         tools["propose_risk"].invoke(RISK)
-        tools["propose_mitigation"].invoke({"risk_id": "#1", "description": "Use parameterised queries"})
-        return "I proposed a risk and a mitigation for it."
+        tools["propose_assumption"].invoke({"text": "Passwords are stored only as hashes"})
+        return "I proposed a risk and an assumption."
 
     model.scripts["threat_modeller"] = threat_modeller
     say(client, "I need to build the login")
     reply = next_reply(client).json()
-    risk, mitigation = reply["approvals"]
+    risk, assumption = reply["approvals"]
     assert (risk["actor"], risk["action_type"], risk["status"]) == ("threat_modeller", "propose_risk", "pending")
-    assert mitigation["proposal"]["risk_id"] == f"approval:{risk['id']}"
-    assert reply["messages"][0]["data"]["approval_ids"] == [risk["id"], mitigation["id"]]
+    assert reply["messages"][0]["data"]["approval_ids"] == [risk["id"], assumption["id"]]
     assert client.get("/workspace/state").json()["risks"] == []  # nothing changes before approval
-
-    assert decide(client, mitigation["id"]).status_code == 409  # the risk it refers to must be approved first
     assert decide(client, risk["id"]).json()["result"] == {"item_id": "R1"}
-    assert decide(client, mitigation["id"]).json()["final_proposal"]["risk_id"] == "R1"
-    assert client.get("/workspace/state").json()["mitigations"][0]["risk_id"] == "R1"
+
+    # Risks come from the Threat Modeller; vulnerabilities and their fixes from the Code Reviewer.
+    assert model.last("threat_modeller")["tools"] == [
+        "get_security_state",
+        "list_files",
+        "propose_assumption",
+        "propose_risk",
+        "read_file",
+        "read_task_description",
+    ]
+
+
+def test_a_fix_for_a_vulnerability_from_the_same_reply_waits_for_it(client, team, model):
+    def reviewer(tools):
+        tools["propose_vulnerability"].invoke(VULNERABILITY)
+        tools["suggest_fix"].invoke(FIX)  # "#1" is the vulnerability above
+        tools["propose_vulnerability"].invoke({**VULNERABILITY, "line": 20})
+        tools["suggest_fix"].invoke({**FIX, "vulnerability": "#3"})
+        return "Two vulnerabilities, each with a fix."
+
+    model.scripts["reviewer"] = reviewer
+    vulnerability, fix, other_vulnerability, other_fix = client.post("/chat/review").json()["approvals"]
+    assert fix["proposal"]["vulnerability"] == f"approval:{vulnerability['id']}"
+    assert decide(client, fix["id"]).status_code == 409  # the vulnerability must be decided first
+    assert decide(client, vulnerability["id"]).json()["result"] == {"item_id": "V1"}
+    assert decide(client, fix["id"]).json()["final_proposal"]["vulnerability"] == "V1"
+
+    decide(client, other_vulnerability["id"], "reject")
+    decide(client, other_fix["id"])  # a fix can still be approved, but there is no vulnerability to link it to
+    mitigations = client.get("/workspace/state").json()["mitigations"]
+    assert [(m["id"], m["vulnerability_id"]) for m in mitigations] == [("M1", "V1"), ("M2", None)]
 
 
 def test_done_runs_the_code_reviewer_then_the_verifier(client, team, model, study_dirs):
-    client.post("/workspace/state/risks", json=RISK)
+    client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "cwe": "CWE-89"})
 
     def reviewer(tools):
-        tools["propose_finding"].invoke(
-            {"description": "Query built from user input", "severity": "High", "file": "app/auth.py", "risk_id": "R1"}
-        )
+        tools["propose_vulnerability"].invoke({**VULNERABILITY, "description": "Password stored in plain text"})
         tools["suggest_fix"].invoke(FIX)
-        return "One finding, with a fix."
+        return "One vulnerability, with a fix."
 
     def verifier(tools):
-        test = {"path": "tests/test_security_login.py", "content": "def test_x():\n    assert True\n", "risk_ids": ["R1"]}
-        tools["propose_test"].invoke(test)
-        return "One test for R1."
+        test = {"path": "tests/test_security_login.py", "content": "def test_x():\n    assert True\n"}
+        tools["propose_test"].invoke({**test, "vulnerability_ids": ["V1"]})
+        return "One test for V1."
 
     model.scripts.update(reviewer=reviewer, verifier=verifier)
     first = client.post("/chat/review").json()
     asked, reviewed = first["messages"]
     assert (asked["content"], asked["data"]["route"]) == (REVIEW_MESSAGE, ["reviewer", "verifier"])
     assert (reviewed["data"]["agent"], first["next"]) == ("reviewer", "verifier")
-    finding, fix = first["approvals"]
-    assert fix["proposal"]["finding"] == f"approval:{finding['id']}"
+    vulnerability, fix = first["approvals"]
+    assert fix["proposal"]["vulnerability"] == f"approval:{vulnerability['id']}"
     assert model.last("reviewer")["messages"][-1].startswith(f"{REVIEW_MESSAGE}\n\n### ")
+    assert model.last("reviewer")["tools"] == [
+        "get_security_state",
+        "list_files",
+        "mark_resolved",
+        "propose_vulnerability",
+        "read_file",
+        "read_task_description",
+        "suggest_fix",
+    ]
     assert (study_dirs / "snapshots" / "P01_A" / asked["data"]["snapshot"] / "app" / "auth.py").is_file()
 
     second = next_reply(client).json()
     (test,) = second["approvals"]
     verifier_call = model.last("verifier")
-    assert "R1 (High, CWE-89): SQL injection in login" in verifier_call["messages"][-1]
-    assert "app/auth.py" not in verifier_call["messages"][-1]  # tests come from the risks, not the code
+    sent = verifier_call["messages"][-1]
+    assert "V1 (High, CWE-89, app/auth.py:12, open): Query built from user input" in sent  # the approved one only
+    assert "Password stored in plain text" not in sent
+    assert "### app/auth.py" not in sent  # tests come from the vulnerabilities, not the code
     assert verifier_call["tools"] == ["get_security_state", "propose_test", "read_task_description"]
     assert second["next"] is None
 
@@ -171,10 +208,11 @@ def test_done_runs_the_code_reviewer_then_the_verifier(client, team, model, stud
     assert client.get("/workspace/files/tests/test_security_login.py").status_code == 200
 
 
-def test_without_approved_risks_the_verifier_only_leaves_a_notice(client, team, model):
+def test_without_approved_vulnerabilities_the_verifier_only_leaves_a_notice(client, team, model):
+    client.post("/workspace/state/risks", json=RISK)  # risks alone are not enough
     assert client.post("/chat/review").json()["next"] == "verifier"
     notice = next_reply(client).json()["messages"][0]
-    assert (notice["role"], notice["data"]["agent"]) == ("system", "verifier")
+    assert (notice["role"], notice["data"]["agent"], notice["content"]) == ("system", "verifier", NO_VULNERABILITIES_NOTICE)
     assert model.roles() == ["reviewer"]
     assert next_reply(client).status_code == 409
 
@@ -205,7 +243,7 @@ def test_single_mode_has_one_assistant(client, single, model):
 
 def test_single_review_sends_the_neutral_message(client, single, model):
     def assistant(tools):
-        tools["suggest_fix"].invoke({**FIX, "finding": "SQL injection"})
+        tools["suggest_fix"].invoke({**FIX, "vulnerability": "SQL injection"})
         return "Here is a fix."
 
     model.scripts["assistant"] = assistant

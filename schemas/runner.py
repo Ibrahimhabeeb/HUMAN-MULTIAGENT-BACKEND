@@ -2,8 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from schemas.security_state import Evidence
-
 Outcome = Literal["passed", "failed", "error", "skipped"]
 RunStatus = Literal["passed", "failed", "no_tests", "timed_out", "error"]
 
@@ -22,4 +20,3 @@ class RunResult(BaseModel):
     counts: dict[Outcome, int]
     tests: list[CaseResult]
     output: str  # the end of pytest's own output
-    evidence: list[Evidence] = []  # team mode: what this run attached to risks

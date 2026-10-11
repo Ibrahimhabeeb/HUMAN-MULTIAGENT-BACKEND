@@ -3,19 +3,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from schemas.common import UtcDatetime
-from schemas.security_state import (
-    AssumptionCreate,
-    FindingCreate,
-    MitigationCreate,
-    RiskCreate,
-)
+from schemas.security_state import AssumptionCreate, RiskCreate, VulnerabilityCreate
 from schemas.workspace import MAX_FILE_CHARS
 
 ActionType = Literal[
     "propose_assumption",
     "propose_risk",
-    "propose_mitigation",
-    "propose_finding",
+    "propose_vulnerability",
     "mark_resolved",
     "propose_test",
     "suggest_fix",
@@ -25,18 +19,19 @@ Decision = Literal["approve", "reject", "edit"]
 
 
 class ResolveProposal(BaseModel):
-    item_id: str = Field(pattern=r"^[RF]\d+$")  # a risk (R2) or a finding (F1)
+    item_id: str = Field(pattern=r"^[RV]\d+$")  # a risk (R2) or a vulnerability (V1)
     reason: str = Field(min_length=3, max_length=1000)
 
 
 class ProposedTest(BaseModel):
     path: str = Field(pattern=r"^tests/(?:[\w-]+/)*test_[\w-]+\.py$")
     content: str = Field(min_length=1, max_length=MAX_FILE_CHARS)
-    risk_ids: list[str] = []  # the approved risks the test was written from (team mode)
+    vulnerability_ids: list[str] = []  # the approved vulnerabilities it tests (team mode)
 
 
 class FixSuggestion(BaseModel):
-    finding: str = Field(max_length=200)  # what it fixes, e.g. "F2" or a short description
+    # In team mode an approved fix becomes a mitigation for the vulnerability it fixes.
+    vulnerability: str = Field(max_length=200)  # what it fixes, e.g. "V2", or a short description in single mode
     file: str = Field(max_length=300)
     location: str = Field(max_length=300)  # where the code goes, e.g. "login(), replacing line 12"
     code: str = Field(min_length=1, max_length=20_000)
@@ -46,8 +41,7 @@ class FixSuggestion(BaseModel):
 PROPOSAL_SCHEMAS: dict[str, type[BaseModel]] = {
     "propose_assumption": AssumptionCreate,
     "propose_risk": RiskCreate,
-    "propose_mitigation": MitigationCreate,
-    "propose_finding": FindingCreate,
+    "propose_vulnerability": VulnerabilityCreate,
     "mark_resolved": ResolveProposal,
     "propose_test": ProposedTest,
     "suggest_fix": FixSuggestion,

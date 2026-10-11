@@ -9,9 +9,10 @@ from services import approvals, study
 from services.errors import ConflictError
 
 RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
-TEST_FILE = {"path": "tests/test_security.py", "content": "def test_x():\n    assert True\n", "risk_ids": ["R1"]}
+VULNERABILITY = {"description": "f-string SQL", "severity": "High", "file": "app/auth.py", "line": 5}
+TEST_FILE = {"path": "tests/test_security.py", "content": "def test_x():\n    assert True\n", "vulnerability_ids": ["V1"]}
 FIX = {
-    "finding": "F1",
+    "vulnerability": "V1",
     "file": "app/auth.py",
     "location": "login(), the SELECT query",
     "code": 'cur.execute("SELECT * FROM users WHERE username = ?", (username,))',
@@ -83,35 +84,58 @@ def test_fix_suggestions_are_approve_or_reject_only_and_never_applied(client, te
     original = client.get("/workspace/files/app/auth.py").json()["content"]
     approval_id = propose("reviewer", "suggest_fix", FIX)
     assert decide(client, approval_id, "edit", FIX).status_code == 409
-    decided = decide(client, approval_id, "approve").json()
-    assert (decided["status"], decided["result"]) == ("approved", None)
+    assert decide(client, approval_id, "approve").json()["status"] == "approved"
     assert client.get("/workspace/files/app/auth.py").json()["content"] == original
 
 
-def test_approved_test_file_is_added_and_linked_to_its_risks(client, db, team, propose):
-    decide(client, propose("threat_modeller", "propose_risk", RISK), "approve")
+def test_an_approved_fix_becomes_a_mitigation_for_its_vulnerability(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    assert decide(client, propose("reviewer", "suggest_fix", FIX), "approve").json()["result"] == {"item_id": "M1"}
+    mitigation = state(client)["mitigations"][0]
+    assert (mitigation["vulnerability_id"], mitigation["source"], mitigation["status"]) == ("V1", "reviewer", "planned")
+    assert (mitigation["file"], mitigation["location"], mitigation["code"]) == (FIX["file"], FIX["location"], FIX["code"])
+    assert mitigation["description"] == FIX["why"]
+
+
+def test_a_fix_for_something_not_in_the_state_becomes_an_unlinked_mitigation(client, team, propose):
+    decide(client, propose("reviewer", "suggest_fix", {**FIX, "vulnerability": "SQL injection in login"}), "approve")
+    assert state(client)["mitigations"][0]["vulnerability_id"] is None
+
+
+def test_approved_test_file_is_added_and_linked_to_its_vulnerabilities(client, db, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
     approval_id = propose("verifier", "propose_test", TEST_FILE)
     assert not Path(get_settings().workspaces_dir, "P01_A", "tests", "test_security.py").exists()
 
     decide(client, approval_id, "approve")
     assert client.get("/workspace/files/tests/test_security.py").json()["content"] == TEST_FILE["content"]
-    link = state(client)["tests"][0]
-    assert (link["path"], link["risk_ids"], link["approval_id"]) == ("tests/test_security.py", ["R1"], approval_id)
+    test = state(client)["tests"][0]
+    assert (test["path"], test["vulnerability_ids"], test["approval_id"]) == ("tests/test_security.py", ["V1"], approval_id)
+    assert (test["source"], test["passed"], test["result"]) == ("verifier", None, None)  # not run yet
     created = db.query(Event).filter(Event.type == "file_created").one()
     assert created.actor == "system"
 
 
-def test_a_test_for_an_unknown_risk_is_refused_and_writes_nothing(client, team, propose):
+def test_deleting_a_vulnerability_removes_it_from_the_tests_for_it(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    decide(client, propose("verifier", "propose_test", TEST_FILE), "approve")
+    assert client.delete("/workspace/state/vulnerabilities/V1").status_code == 204
+    assert state(client)["tests"][0]["vulnerability_ids"] == []
+
+
+def test_a_test_for_an_unknown_vulnerability_is_refused_and_writes_nothing(client, team, propose):
     approval_id = propose("verifier", "propose_test", TEST_FILE)
     assert decide(client, approval_id, "approve").status_code == 404
     assert client.get(f"/approvals/{approval_id}").json()["status"] == "pending"
     assert client.get("/workspace/files/tests/test_security.py").status_code == 404
 
 
-def test_mark_resolved_updates_the_finding(client, team, propose):
-    decide(client, propose("reviewer", "propose_finding", {"description": "f-string SQL", "severity": "High"}), "approve")
-    decide(client, propose("reviewer", "mark_resolved", {"item_id": "F1", "reason": "Now uses placeholders"}), "approve")
-    assert state(client)["findings"][0]["status"] == "fixed"
+def test_mark_resolved_updates_the_vulnerability_or_risk(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    decide(client, propose("threat_modeller", "propose_risk", RISK), "approve")
+    decide(client, propose("reviewer", "mark_resolved", {"item_id": "V1", "reason": "Now uses placeholders"}), "approve")
+    decide(client, propose("reviewer", "mark_resolved", {"item_id": "R1", "reason": "Every query uses them"}), "approve")
+    assert (state(client)["vulnerabilities"][0]["status"], state(client)["risks"][0]["status"]) == ("fixed", "mitigated")
 
 
 def test_invalid_proposals_are_refused_when_requested(team, propose):
@@ -124,9 +148,11 @@ def test_invalid_proposals_are_refused_when_requested(team, propose):
 def test_single_mode_allows_only_fixes_and_tests(client, single, propose):
     with pytest.raises(ConflictError):
         propose("assistant", "propose_risk", RISK)
-    approval_id = propose("assistant", "propose_test", {**TEST_FILE, "risk_ids": []})
+    approval_id = propose("assistant", "propose_test", {**TEST_FILE, "vulnerability_ids": []})
     decide(client, approval_id, "approve")
     assert client.get("/workspace/files/tests/test_security.py").status_code == 200
+    fix = {**FIX, "vulnerability": "SQL injection"}
+    assert decide(client, propose("assistant", "suggest_fix", fix), "approve").json()["result"] is None  # no state
 
 
 def test_requests_and_decisions_are_logged(client, db, team, propose):

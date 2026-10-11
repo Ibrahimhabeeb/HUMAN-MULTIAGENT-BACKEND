@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from config import get_settings
 from models import Workspace
 from schemas.runner import CaseResult, Outcome
-from schemas.security_state import Evidence
 from services import state_service, workspace
 from services.events import log_event
 
@@ -90,21 +89,15 @@ def _summary(code: int | None, counts: dict[str, int]) -> tuple[str, str]:
     return ("passed" if code == 0 else "failed"), ", ".join(parts) or "No tests ran."
 
 
-def _attach_evidence(ws: Workspace, cases: list[CaseResult]) -> list[Evidence]:
-    # The results of a test file written for some risks become evidence for those risks. Every run adds new
-    # evidence, so the state shows how the results changed over time.
+def _record_results(ws: Workspace, cases: list[CaseResult]) -> None:
+    # Each security test in the state keeps its result from this run. The event log keeps every run's results.
     state = state_service.load(ws)
-    existing = {risk.id for risk in state.risks}
-    added = []
-    for link in state.tests:
-        results = [case for case in cases if case.file == link.path]
-        risk_ids = [risk_id for risk_id in link.risk_ids if risk_id in existing]
-        if results and risk_ids:
-            passed = sum(case.outcome == "passed" for case in results)
-            text = f"{link.path}: {passed} of {len(results)} tests passed"
-            added.append(state_service.add_evidence(state, text, passed == len(results), risk_ids))
+    for test in state.tests:
+        results = [case for case in cases if case.file == test.path]
+        passed = sum(case.outcome == "passed" for case in results)
+        test.passed = passed == len(results) if results else None
+        test.result = f"{passed} of {len(results)} tests passed" if results else "No result in the latest run"
     state_service.save(ws, state)
-    return added
 
 
 def run_tests(db: Session, ws: Workspace) -> dict:
@@ -114,10 +107,9 @@ def run_tests(db: Session, ws: Workspace) -> dict:
     counts = {outcome: sum(case.outcome == outcome for case in cases) for outcome in get_args(Outcome)}
     status, message = _summary(code, counts)
 
-    evidence: list[Evidence] = []
     if ws.mode == "team":
         db.refresh(ws)  # the state may have changed while the tests ran
-        evidence = _attach_evidence(ws, cases)
+        _record_results(ws, cases)
     log_event(
         db,
         ws.participant_code,
@@ -128,15 +120,7 @@ def run_tests(db: Session, ws: Workspace) -> dict:
             "counts": counts,
             "snapshot": snapshot.name,
             "tests": [{"file": c.file, "name": c.name, "outcome": c.outcome} for c in cases],
-            "evidence": [e.id for e in evidence],
         },
     )
     db.commit()
-    return {
-        "status": status,
-        "message": message,
-        "counts": counts,
-        "tests": cases,
-        "output": output,
-        "evidence": evidence,
-    }
+    return {"status": status, "message": message, "counts": counts, "tests": cases, "output": output}

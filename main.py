@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.logging import DefaultFormatter
 
 from api.approvals import router as approvals_router
 from api.chat import router as chat_router
@@ -15,10 +17,22 @@ from db import init_db
 from services import questionnaire
 
 
+def show_state_changes() -> None:
+    # Prints every change to the shared security state in this console, in the same style as uvicorn's messages.
+    logger = logging.getLogger("security_state")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(DefaultFormatter("%(levelprefix)s %(message)s"))
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     init_db()
     questionnaire.check()
+    show_state_changes()
     yield
 
 

@@ -13,6 +13,7 @@ from schemas.approval import (
     Decision,
     ProposedTest,
 )
+from schemas.security_state import MitigationCreate
 from services import state_service, workspace
 from services.errors import ConflictError, InvalidInputError, NotFoundError
 from services.events import log_event
@@ -21,8 +22,7 @@ from services.events import log_event
 _ADDS_TO = {
     "propose_assumption": "assumptions",
     "propose_risk": "risks",
-    "propose_mitigation": "mitigations",
-    "propose_finding": "findings",
+    "propose_vulnerability": "vulnerabilities",
 }
 _STATUS_FOR = {"approve": "approved", "reject": "rejected", "edit": "edited"}
 
@@ -68,17 +68,34 @@ def get_approval(db: Session, ws: Workspace, approval_id: int) -> Approval:
     return approval
 
 
+def _add_mitigation(ws: Workspace, approval: Approval, fix: dict[str, Any]) -> dict:
+    # In team mode an approved fix becomes a mitigation, linked to the vulnerability it fixes if that is in the state.
+    state = state_service.load(ws)
+    fixes = fix["vulnerability"]
+    mitigation = MitigationCreate(
+        vulnerability_id=fixes if state_service.has(state, "vulnerabilities", fixes) else None,
+        description=fix["why"],
+        file=fix["file"],
+        location=fix["location"],
+        code=fix["code"],
+    )
+    item = state_service.add_item(state, "mitigations", mitigation, approval.actor, approval.id)
+    state_service.save(ws, state)
+    return {"item_id": item.id}
+
+
 def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]) -> dict | None:
     # Makes the approved change. Nothing here commits; decide() commits once at the end.
     action = approval.action_type
     if action == "suggest_fix":
-        return None  # the human types the fix themselves; nothing is written into the code
+        # The human types the fix themselves; nothing is written into the code.
+        return _add_mitigation(ws, approval, final) if ws.mode == "team" else None
 
     if action == "propose_test":
         test = ProposedTest.model_validate(final)
         if ws.mode == "team":
             state = state_service.load(ws)
-            state_service.link_test(state, test.path, test.risk_ids, approval.id)
+            state_service.link_test(state, test.path, test.vulnerability_ids, approval.id)
             state_service.save(ws, state)
         workspace.write_text(ws, test.path, test.content)
         log_event(
@@ -102,16 +119,17 @@ def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]
     return {"item_id": item.id}
 
 
-def _resolve_risk_reference(db: Session, ws: Workspace, final: dict[str, Any]) -> dict[str, Any]:
-    # An agent may link a mitigation or finding to a risk it proposed in the same turn ("approval:<id>").
-    # That risk must be approved first; the reference then becomes the risk's real id.
-    reference = str(final.get("risk_id") or "")
+def _resolve_reference(db: Session, ws: Workspace, final: dict[str, Any]) -> dict[str, Any]:
+    # A fix may be for a vulnerability the Code Reviewer proposed in the same reply ("approval:<id>"). That proposal
+    # must be decided first; if it was approved, the reference becomes the vulnerability's id.
+    reference = str(final.get("vulnerability") or "")
     if not reference.startswith("approval:"):
         return final
     referenced = get_approval(db, ws, int(reference.removeprefix("approval:")))
-    if referenced.status not in ("approved", "edited") or not (referenced.result or {}).get("item_id"):
-        raise ConflictError(f"Approve proposal {referenced.id} (the risk this refers to) first")
-    return {**final, "risk_id": referenced.result["item_id"]}
+    if referenced.status == "pending":
+        raise ConflictError(f"Approve or reject proposal {referenced.id} (the vulnerability this fixes) first")
+    item_id = (referenced.result or {}).get("item_id")
+    return {**final, "vulnerability": item_id} if item_id else final  # if it was rejected, the fix isn't linked
 
 
 def decide(
@@ -131,7 +149,7 @@ def decide(
     elif decision == "reject":
         final = None
     if final is not None:
-        final = _resolve_risk_reference(db, ws, final)
+        final = _resolve_reference(db, ws, final)
 
     # Claim the approval atomically, so two clicks (or two requests) can never both apply it.
     claimed = db.execute(

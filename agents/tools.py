@@ -16,18 +16,18 @@ TOOLS_FOR: dict[str, list[str]] = {
         "get_security_state",
         "propose_assumption",
         "propose_risk",
-        "propose_mitigation",
     ],
+    # An approved fix becomes a mitigation for the vulnerability it fixes.
     "reviewer": [
         "list_files",
         "read_file",
         "read_task_description",
         "get_security_state",
-        "propose_finding",
+        "propose_vulnerability",
         "suggest_fix",
         "mark_resolved",
     ],
-    # Tests are written from the approved risks and the task's interface, not from the code.
+    # Tests are written against the approved vulnerabilities and the task's interface, not from the code.
     "verifier": ["read_task_description", "get_security_state", "propose_test"],
     "assistant": ["list_files", "read_file", "suggest_fix", "propose_test"],
 }
@@ -61,7 +61,7 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
 
     @tool
     def get_security_state() -> str:
-        """Get the approved shared security state: assumptions, risks, mitigations, findings, evidence and tests."""
+        """Get the approved shared security state: assumptions, risks, vulnerabilities, mitigations and tests."""
         return ctx.state.model_dump_json(indent=1, exclude={"counters"}) if ctx.state else "No security state."
 
     @tool
@@ -77,12 +77,7 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
         return record("propose_risk", description=description, severity=severity, cwe=cwe, owasp=owasp, stride=stride)
 
     @tool
-    def propose_mitigation(risk_id: str, description: str) -> str:
-        """Propose a mitigation for a risk: an approved risk id like "R1", or "#n" for a risk you proposed this turn."""
-        return record("propose_mitigation", risk_id=risk_id, description=description)
-
-    @tool
-    def propose_finding(
+    def propose_vulnerability(
         description: str,
         severity: Severity,
         file: str | None = None,
@@ -90,25 +85,33 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
         cwe: str | None = None,
         risk_id: str | None = None,
     ) -> str:
-        """Propose a finding: a weakness in the code, with its file and line, linked to a risk id if it is one."""
+        """Propose a vulnerability: a weakness in the code, with its file and line, and the approved risk it is an
+        instance of (e.g. "R1"), if any."""
         return record(
-            "propose_finding", description=description, severity=severity, file=file, line=line, cwe=cwe, risk_id=risk_id
+            "propose_vulnerability",
+            description=description,
+            severity=severity,
+            file=file,
+            line=line,
+            cwe=cwe,
+            risk_id=risk_id,
         )
 
     @tool
-    def suggest_fix(finding: str, file: str, location: str, code: str, why: str) -> str:
-        """Suggest a fix: what it fixes (e.g. "F2" or "#1"), the file, where the code goes, the code, and why."""
-        return record("suggest_fix", finding=finding, file=file, location=location, code=code, why=why)
+    def suggest_fix(vulnerability: str, file: str, location: str, code: str, why: str) -> str:
+        """Suggest a fix: what it fixes (a vulnerability like "V2", "#1" for one you proposed in this reply, or a
+        short description), the file, where the code goes, the code, and why."""
+        return record("suggest_fix", vulnerability=vulnerability, file=file, location=location, code=code, why=why)
 
     @tool
     def mark_resolved(item_id: str, reason: str) -> str:
-        """Propose marking a finding (F1) or risk (R2) as resolved, with the reason."""
+        """Propose marking a vulnerability (V1) as fixed or a risk (R2) as mitigated, with the reason."""
         return record("mark_resolved", item_id=item_id, reason=reason)
 
     @tool
-    def propose_test(path: str, content: str, risk_ids: list[str] | None = None) -> str:
-        """Propose a pytest file, e.g. path "tests/test_security_login.py", and the risk ids it covers."""
-        return record("propose_test", path=path, content=content, risk_ids=risk_ids or [])
+    def propose_test(path: str, content: str, vulnerability_ids: list[str] | None = None) -> str:
+        """Propose a pytest file, e.g. path "tests/test_security_login.py", and the vulnerability ids it tests."""
+        return record("propose_test", path=path, content=content, vulnerability_ids=vulnerability_ids or [])
 
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
     return [available[name] for name in TOOLS_FOR[actor]]
