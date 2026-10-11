@@ -14,8 +14,8 @@ ActionType = Literal[
     "propose_test",
     "suggest_fix",
 ]
-ApprovalStatus = Literal["pending", "approved", "rejected", "edited"]
-Decision = Literal["approve", "reject", "edit"]
+ApprovalStatus = Literal["pending", "approved", "rejected"]
+Decision = Literal["approve", "reject"]  # proposals are never edited: the human changes approved items themselves
 
 
 class ResolveProposal(BaseModel):
@@ -50,9 +50,6 @@ PROPOSAL_SCHEMAS: dict[str, type[BaseModel]] = {
 # Single mode has no shared security state, so only fixes and tests can be proposed there.
 SINGLE_MODE_ACTIONS = {"suggest_fix", "propose_test"}
 
-# The human adapts a fix while typing it, so fixes are only approved or rejected, never edited.
-NOT_EDITABLE = {"suggest_fix"}
-
 
 class ApprovalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -70,4 +67,3 @@ class ApprovalOut(BaseModel):
 
 class DecisionRequest(BaseModel):
     decision: Decision
-    proposal: dict[str, Any] | None = None  # the edited proposal, for "edit"

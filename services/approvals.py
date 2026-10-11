@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from models import Approval, Workspace
 from models.common import as_utc, utc_now
 from schemas.approval import (
-    NOT_EDITABLE,
     PROPOSAL_SCHEMAS,
     SINGLE_MODE_ACTIONS,
     ActionType,
@@ -15,7 +14,7 @@ from schemas.approval import (
 )
 from schemas.security_state import MitigationCreate
 from services import state_service, workspace
-from services.errors import ConflictError, InvalidInputError, NotFoundError
+from services.errors import ConflictError, NotFoundError
 from services.events import log_event
 
 # Which state category each "propose_*" action adds to.
@@ -24,7 +23,7 @@ _ADDS_TO = {
     "propose_risk": "risks",
     "propose_vulnerability": "vulnerabilities",
 }
-_STATUS_FOR = {"approve": "approved", "reject": "rejected", "edit": "edited"}
+_STATUS_FOR = {"approve": "approved", "reject": "rejected"}
 
 
 def request_approval(db: Session, ws: Workspace, actor: str, action_type: ActionType, proposal: dict) -> Approval:
@@ -119,22 +118,12 @@ def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]
     return {"item_id": item.id}
 
 
-def decide(
-    db: Session, ws: Workspace, approval_id: int, decision: Decision, edited: dict[str, Any] | None = None
-) -> Approval:
+def decide(db: Session, ws: Workspace, approval_id: int, decision: Decision) -> Approval:
+    # Approve or reject only: a proposal is never edited. The human changes approved items themselves.
     approval = get_approval(db, ws, approval_id)
     if approval.status != "pending":
         raise ConflictError(f"Approval {approval_id} has already been decided")
-
-    final: dict[str, Any] | None = approval.proposal
-    if decision == "edit":
-        if approval.action_type in NOT_EDITABLE:
-            raise ConflictError("Fix suggestions can only be approved or rejected")
-        if edited is None:
-            raise InvalidInputError("An edited proposal is required")
-        final = PROPOSAL_SCHEMAS[approval.action_type].model_validate(edited).model_dump(mode="json")
-    elif decision == "reject":
-        final = None
+    final: dict[str, Any] | None = approval.proposal if decision == "approve" else None
 
     # Claim the approval atomically, so two clicks (or two requests) can never both apply it.
     claimed = db.execute(

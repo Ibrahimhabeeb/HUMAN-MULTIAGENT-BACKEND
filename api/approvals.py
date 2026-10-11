@@ -28,6 +28,6 @@ def get_approval(db: Db, approval_id: int) -> ApprovalOut:
 @router.post("/{approval_id}/decide")
 def decide(db: Db, approval_id: int, body: DecisionRequest) -> ApprovalOut:
     decided = run(
-        lambda: approvals.decide(db, study.editable_workspace(db), approval_id, body.decision, body.proposal)
+        lambda: approvals.decide(db, study.editable_workspace(db), approval_id, body.decision)
     )
     return ApprovalOut.model_validate(decided)

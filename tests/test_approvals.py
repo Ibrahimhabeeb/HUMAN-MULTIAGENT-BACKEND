@@ -29,8 +29,8 @@ def propose(db):
     return _propose
 
 
-def decide(client, approval_id, decision, proposal=None):
-    return client.post(f"/approvals/{approval_id}/decide", json={"decision": decision, "proposal": proposal})
+def decide(client, approval_id, decision):
+    return client.post(f"/approvals/{approval_id}/decide", json={"decision": decision})
 
 
 def state(client):
@@ -58,18 +58,13 @@ def test_reject_applies_nothing(client, team, propose):
     assert state(client)["risks"] == []
 
 
-def test_edit_then_approve_applies_the_edited_version(client, team, propose):
+def test_proposals_are_only_approved_or_rejected_never_edited(client, team, propose):
     approval_id = propose("threat_modeller", "propose_risk", RISK)
-    decided = decide(client, approval_id, "edit", {**RISK, "severity": "Critical"}).json()
-    assert decided["status"] == "edited"
-    assert (decided["proposal"]["severity"], decided["final_proposal"]["severity"]) == ("High", "Critical")
-    assert state(client)["risks"][0]["severity"] == "Critical"
-
-
-def test_an_invalid_edit_is_refused_and_stays_pending(client, team, propose):
-    approval_id = propose("threat_modeller", "propose_risk", RISK)
-    assert decide(client, approval_id, "edit", {**RISK, "severity": "Extreme"}).status_code == 422
+    edit = {"decision": "edit", "proposal": {**RISK, "severity": "Critical"}}
+    assert client.post(f"/approvals/{approval_id}/decide", json=edit).status_code == 422
     assert client.get(f"/approvals/{approval_id}").json()["status"] == "pending"
+    decided = decide(client, approval_id, "approve").json()
+    assert decided["final_proposal"] == decided["proposal"]  # applied exactly as proposed
 
 
 def test_each_proposal_is_decided_once(client, team, propose):
@@ -80,10 +75,9 @@ def test_each_proposal_is_decided_once(client, team, propose):
     assert len(state(client)["risks"]) == 1
 
 
-def test_fix_suggestions_are_approve_or_reject_only_and_never_applied(client, team, propose):
+def test_an_approved_fix_never_changes_the_code(client, team, propose):
     original = client.get("/workspace/files/app/auth.py").json()["content"]
     approval_id = propose("reviewer", "suggest_fix", FIX)
-    assert decide(client, approval_id, "edit", FIX).status_code == 409
     assert decide(client, approval_id, "approve").json()["status"] == "approved"
     assert client.get("/workspace/files/app/auth.py").json()["content"] == original
 
