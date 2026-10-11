@@ -4,7 +4,13 @@ from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import Session
 
 from agents import runtime
-from agents.context import AgentContext, build_context, code_listing
+from agents.context import (
+    AgentContext,
+    Earlier,
+    build_context,
+    code_listing,
+    earlier_proposals,
+)
 from agents.roles import (
     FACILITATOR_PROMPT,
     FIRST_ROUTE,
@@ -42,12 +48,22 @@ def _risk_list(state: SecurityState) -> str:
 
 def _vulnerability_list(state: SecurityState) -> str:
     tested = {found: test.path for test in state.tests for found in test.vulnerability_ids}
+    mitigations: dict[str, list[str]] = {}
+    for m in state.mitigations:
+        if m.vulnerability_id:
+            mitigations.setdefault(m.vulnerability_id, []).append(m.id)
     lines = []
     for v in state.vulnerabilities:
         where = f"{v.file}:{v.line}" if v.file and v.line else v.file
         details = ", ".join(part for part in (v.severity, v.cwe, where, v.status) if part)
-        line = f"- {v.id} ({details}): {v.description}"
-        lines.append(line + (f" [already tested in {tested[v.id]}]" if v.id in tested else ""))
+        notes = []
+        if v.id in mitigations:
+            notes.append(f"mitigation {', '.join(mitigations[v.id])}")
+        elif v.status == "open":
+            notes.append("no mitigation yet")
+        if v.id in tested:
+            notes.append(f"tested in {tested[v.id]}")
+        lines.append(f"- {v.id} ({details}){''.join(f' [{note}]' for note in notes)}: {v.description}")
     return "\n".join(lines)
 
 
@@ -56,8 +72,44 @@ def _in_the_state(state: SecurityState | None) -> str:
     state = state or SecurityState()
     return (
         f"The approved risks:\n{_risk_list(state) or '(none yet)'}\n\n"
-        f"The vulnerabilities in the security state:\n{_vulnerability_list(state) or '(none yet)'}"
+        f"The approved vulnerabilities:\n{_vulnerability_list(state) or '(none yet)'}"
     )
+
+
+def _describe(earlier: Earlier) -> str | None:
+    p = earlier.proposal
+    match earlier.action_type:
+        case "propose_assumption":
+            return f"assumption: {p['text']}"
+        case "propose_risk":
+            return f"risk ({', '.join(filter(None, (p['severity'], p.get('cwe'))))}): {p['description']}"
+        case "propose_vulnerability":
+            where = f"{p.get('file')}:{p.get('line')}" if p.get("file") and p.get("line") else p.get("file")
+            details = ", ".join(filter(None, (p["severity"], p.get("cwe"), where)))
+            return f"vulnerability ({details}): {p['description']}"
+        case "suggest_fix":
+            return f"fix for {p['vulnerability']}: {p['why']}"
+        case "mark_resolved":
+            return f"mark {p['item_id']} as resolved: {p['reason']}"
+        case "propose_test":
+            return f"test file {p['path']} for {', '.join(p.get('vulnerability_ids') or []) or 'no vulnerability'}"
+    return None  # an action type that no longer exists
+
+
+def _not_approved(ctx: AgentContext, agent: Specialist) -> str:
+    # The agent's own proposals that the developer hasn't approved, with the ids the developer sees, so it never
+    # proposes them again.
+    lines: dict[str, list[str]] = {"pending": [], "rejected": []}
+    for earlier in ctx.earlier:
+        described = _describe(earlier)
+        if earlier.actor == agent and described:
+            lines[earlier.status].append(f"- #{earlier.id} {described[:200]}")
+    parts = []
+    if lines["pending"]:
+        parts.append("Your proposals still waiting for the developer's decision:\n" + "\n".join(lines["pending"]))
+    if lines["rejected"]:
+        parts.append("Your proposals the developer rejected:\n" + "\n".join(lines["rejected"]))
+    return "\n\n".join(parts)
 
 
 def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
@@ -73,24 +125,25 @@ def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
 def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: AgentContext) -> str:
     # What the agent is given: the developer's message and what the others already answered; the Code Reviewer
     # always gets the current code and what is in the state, the Test/Verifier the approved vulnerabilities.
+    # Every agent also sees its own proposals that are still waiting or were rejected.
     review = "snapshot" in asked.data
     if agent == "verifier":
         vulnerabilities = _vulnerability_list(ctx.state or SecurityState()) or "(none yet)"
         if review:
-            return (
-                "The developer asked for a review. Write security tests against the approved vulnerabilities:\n"
-                + vulnerabilities
-            )
-        return f"{asked.content}\n\nThe approved vulnerabilities:\n{vulnerabilities}"
-    if agent == "reviewer" and review:
-        return f"{REVIEW_MESSAGE}\n\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
-
-    text = asked.content
-    for reply in replies:
-        text += f"\n\n[{NAMES[reply.data['agent']]} already answered this]\n{reply.content}"
-    if agent == "reviewer":
-        text += f"\n\nThe developer's current code:\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
-    return text
+            text = "The developer asked for a review. Write security tests against the approved vulnerabilities:\n"
+            text += vulnerabilities
+        else:
+            text = f"{asked.content}\n\nThe approved vulnerabilities:\n{vulnerabilities}"
+    elif agent == "reviewer" and review:
+        text = f"{REVIEW_MESSAGE}\n\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
+    else:
+        text = asked.content
+        for reply in replies:
+            text += f"\n\n[{NAMES[reply.data['agent']]} already answered this]\n{reply.content}"
+        if agent == "reviewer":
+            text += f"\n\nThe developer's current code:\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
+    not_approved = _not_approved(ctx, agent)
+    return f"{text}\n\n{not_approved}" if not_approved else text
 
 
 def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> dict:
@@ -98,6 +151,7 @@ def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> di
     replies = [m for m in messages if m.data.get("reply_to") == asked.id and m.role == "agent"]
     reply_data = {"agent": agent, "reply_to": asked.id}
     ctx = build_context(ws)
+    ctx.earlier = earlier_proposals(db, ws)
 
     if agent == "verifier" and not (ctx.state and ctx.state.vulnerabilities):
         notice = chat.add_message(db, ws, THREAD, "system", NO_VULNERABILITIES_NOTICE, reply_data)

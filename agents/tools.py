@@ -1,13 +1,9 @@
-import re
-
 from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
 from agents.context import AgentContext, Proposal, numbered
 from schemas.approval import PROPOSAL_SCHEMAS
-from schemas.security_state import Severity, StateItem
-
-_EARLIER_PROPOSAL = re.compile(r"#(\d+)")
+from schemas.security_state import SecurityState, Severity, StateItem
 
 # Which tools each agent gets. Reading tools only look at the run's snapshot;
 # every other tool records a proposal that waits for the human's approval.
@@ -41,41 +37,100 @@ def _ids(items: list[StateItem]) -> str:
     return ", ".join(item.id for item in items) or "none yet"
 
 
-def _link_problem(ctx: AgentContext, action_type: str, proposal: dict) -> str | None:
-    # Team mode: a proposal may only point at items in the approved state, or a fix at a vulnerability proposed
-    # earlier in the same reply ("#n"). Saying so straight away lets the agent correct it before the developer sees it.
-    state = ctx.state
-    if state is None:
-        return None
-    risks = {risk.id for risk in state.risks}
-    vulnerabilities = {v.id for v in state.vulnerabilities}
-    if action_type == "propose_vulnerability":
-        risk_id = proposal["risk_id"]
-        if risk_id is not None and risk_id not in risks:
-            return (
-                f"{risk_id} is not an approved risk (approved risks: {_ids(state.risks)}). "
-                "Use one of those or leave risk_id empty."
-            )
-    elif action_type == "suggest_fix":
-        target = proposal["vulnerability"].strip()
-        earlier = _EARLIER_PROPOSAL.fullmatch(target)
-        if earlier:
-            n = int(earlier.group(1))
-            if not (0 < n <= len(ctx.proposals) and ctx.proposals[n - 1].action_type == "propose_vulnerability"):
-                return f"{target} is not a vulnerability you proposed earlier in this reply."
-        elif target not in vulnerabilities:
-            return (
-                f"{target} is not a vulnerability in the security state (vulnerabilities: {_ids(state.vulnerabilities)}). "
-                "Propose the vulnerability first, then refer to it by its proposal number, e.g. #1."
-            )
-    elif action_type == "propose_test":
-        unknown = [v for v in proposal["vulnerability_ids"] if v not in vulnerabilities]
-        if unknown:
-            approved = _ids(state.vulnerabilities)
-            return f"these are not approved vulnerabilities: {', '.join(unknown)} (approved: {approved})."
-    elif action_type == "mark_resolved" and proposal["item_id"] not in risks | vulnerabilities:
-        return f"{proposal['item_id']} is not in the security state."
+def _same_place(a: dict, b: dict) -> bool:
+    # Two vulnerabilities are the same if they are in the same file, on the same line, with the same CWE.
+    return a.get("file") is not None and all(a.get(key) == b.get(key) for key in ("file", "line", "cwe"))
+
+
+def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    risk_id = proposal["risk_id"]
+    if risk_id is not None and not any(risk.id == risk_id for risk in state.risks):
+        return (
+            f"{risk_id} is not an approved risk (approved risks: {_ids(state.risks)}). "
+            "Use one of those or leave risk_id empty."
+        )
+    for v in state.vulnerabilities:
+        if _same_place(proposal, v.model_dump()):
+            return f"this is the same as {v.id}, which is already in the security state."
+    for earlier in ctx.earlier:
+        if earlier.action_type == "propose_vulnerability" and _same_place(proposal, earlier.proposal):
+            if earlier.status == "pending":
+                return f"this is the same as proposal #{earlier.id}, which is waiting for the developer's decision."
+            return f"the developer rejected this vulnerability (proposal #{earlier.id}). Don't propose it again."
+    if any(p.action_type == "propose_vulnerability" and _same_place(proposal, p.proposal) for p in ctx.proposals):
+        return "you already proposed this vulnerability in this reply."
     return None
+
+
+def _fix_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    target = proposal["vulnerability"].strip()
+    vulnerability = next((v for v in state.vulnerabilities if v.id == target), None)
+    if vulnerability is None:
+        return (
+            f"{target} is not an approved vulnerability (approved: {_ids(state.vulnerabilities)}). "
+            "Suggest fixes only for vulnerabilities the developer has approved."
+        )
+    if vulnerability.status == "fixed":
+        return f"{target} is already fixed."
+    mitigation = next((m.id for m in state.mitigations if m.vulnerability_id == target), None)
+    if mitigation:
+        return f"{target} already has a mitigation ({mitigation})."
+    for earlier in ctx.earlier:
+        if earlier.action_type == "suggest_fix" and earlier.proposal.get("vulnerability") == target:
+            if earlier.status == "pending":
+                return f"a fix for {target} is already waiting for the developer's decision (proposal #{earlier.id})."
+            if earlier.proposal.get("code") == proposal["code"]:
+                return f"the developer rejected this fix (proposal #{earlier.id}). Don't suggest it again."
+    if any(p.action_type == "suggest_fix" and p.proposal.get("vulnerability") == target for p in ctx.proposals):
+        return f"you already suggested a fix for {target} in this reply."
+    return None
+
+
+def _test_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    unknown = [v for v in proposal["vulnerability_ids"] if not any(x.id == v for x in state.vulnerabilities)]
+    if unknown:
+        approved = _ids(state.vulnerabilities)
+        return f"these are not approved vulnerabilities: {', '.join(unknown)} (approved: {approved})."
+    for earlier in ctx.earlier:
+        if earlier.action_type == "propose_test" and earlier.proposal.get("path") == proposal["path"]:
+            if earlier.status == "pending":
+                return f"{proposal['path']} is already waiting for the developer's decision (proposal #{earlier.id})."
+            if earlier.proposal.get("content") == proposal["content"]:
+                return f"the developer rejected this test (proposal #{earlier.id}). Don't propose it again."
+    if any(p.action_type == "propose_test" and p.proposal.get("path") == proposal["path"] for p in ctx.proposals):
+        return f"you already proposed {proposal['path']} in this reply."
+    return None
+
+
+def _resolve_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    item_id = proposal["item_id"]
+    item = next((i for i in [*state.risks, *state.vulnerabilities] if i.id == item_id), None)
+    if item is None:
+        return f"{item_id} is not in the security state."
+    if item.status != "open":
+        return f"{item_id} is already {item.status}."
+    for earlier in ctx.earlier:
+        if (earlier.status, earlier.action_type, earlier.proposal.get("item_id")) == ("pending", "mark_resolved", item_id):
+            return f"marking {item_id} as resolved is already waiting for the developer's decision."
+    if any(p.action_type == "mark_resolved" and p.proposal.get("item_id") == item_id for p in ctx.proposals):
+        return f"you already proposed marking {item_id} as resolved in this reply."
+    return None
+
+
+_CHECKS = {
+    "propose_vulnerability": _vulnerability_problem,
+    "suggest_fix": _fix_problem,
+    "propose_test": _test_problem,
+    "mark_resolved": _resolve_problem,
+}
+
+
+def _problem(ctx: AgentContext, action_type: str, proposal: dict) -> str | None:
+    # Team mode: a proposal may only point at approved items, and each thing is proposed once: not again while it
+    # waits for the developer's decision, after it was rejected, or once it is in the state. Saying so straight
+    # away lets the agent correct it before the developer sees it.
+    check = _CHECKS.get(action_type)
+    return check(ctx, ctx.state, proposal) if check and ctx.state else None
 
 
 def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
@@ -84,11 +139,11 @@ def make_tools(ctx: AgentContext, actor: str) -> list[BaseTool]:
             data = PROPOSAL_SCHEMAS[action_type].model_validate({k: v for k, v in fields.items() if v is not None})
         except ValidationError as e:
             return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
-        problem = _link_problem(ctx, action_type, data.model_dump())
+        problem = _problem(ctx, action_type, data.model_dump(mode="json"))
         if problem:
             return f"Not recorded: {problem}"
         ctx.proposals.append(Proposal(actor, action_type, data.model_dump(mode="json")))
-        return f"Recorded as proposal #{len(ctx.proposals)}. It waits for the developer's approval."
+        return "Recorded. It waits for the developer's approval."
 
     @tool
     def list_files() -> str:

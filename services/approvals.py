@@ -119,19 +119,6 @@ def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]
     return {"item_id": item.id}
 
 
-def _resolve_reference(db: Session, ws: Workspace, final: dict[str, Any]) -> dict[str, Any]:
-    # A fix may be for a vulnerability the Code Reviewer proposed in the same reply ("approval:<id>"). That proposal
-    # must be decided first; if it was approved, the reference becomes the vulnerability's id.
-    reference = str(final.get("vulnerability") or "")
-    if not reference.startswith("approval:"):
-        return final
-    referenced = get_approval(db, ws, int(reference.removeprefix("approval:")))
-    if referenced.status == "pending":
-        raise ConflictError(f"Approve or reject proposal {referenced.id} (the vulnerability this fixes) first")
-    item_id = (referenced.result or {}).get("item_id")
-    return {**final, "vulnerability": item_id} if item_id else final  # if it was rejected, the fix isn't linked
-
-
 def decide(
     db: Session, ws: Workspace, approval_id: int, decision: Decision, edited: dict[str, Any] | None = None
 ) -> Approval:
@@ -148,8 +135,6 @@ def decide(
         final = PROPOSAL_SCHEMAS[approval.action_type].model_validate(edited).model_dump(mode="json")
     elif decision == "reject":
         final = None
-    if final is not None:
-        final = _resolve_reference(db, ws, final)
 
     # Claim the approval atomically, so two clicks (or two requests) can never both apply it.
     claimed = db.execute(
