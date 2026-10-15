@@ -46,3 +46,43 @@ def test_the_key_is_hidden_when_settings_are_printed():
     settings = Settings(_env_file=None, llm_api_key="sk-test")
     assert "sk-test" not in str(settings)
     assert "sk-test" not in repr(settings)
+
+
+def test_missing_certificate_override_uses_verified_defaults(monkeypatch, tmp_path, caplog):
+    use_settings(monkeypatch, llm_model="openai:gpt-4.1-mini", llm_api_key="sk-test")
+    missing = str(tmp_path / "missing-conda-cacert.pem")
+    monkeypatch.setenv("SSL_CERT_FILE", missing)
+
+    def initialise(model, **options):
+        assert "SSL_CERT_FILE" not in os.environ
+        assert options == {"api_key": "sk-test"}
+        context = ssl.create_default_context()
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        assert context.check_hostname is True
+        return "model"
+
+    monkeypatch.setattr(llm, "init_chat_model", initialise)
+    assert llm.get_model() == "model"
+    assert "missing-conda-cacert.pem" in caplog.text
+    assert "TLS verification remains enabled" in caplog.text
+    assert "sk-test" not in caplog.text
+
+
+def test_existing_certificate_override_is_preserved(monkeypatch, tmp_path, calls, caplog):
+    use_settings(monkeypatch, llm_model="openai:gpt-4.1-mini")
+    certificate = tmp_path / "custom-ca.pem"
+    certificate.touch()
+    monkeypatch.setenv("SSL_CERT_FILE", str(certificate))
+    llm.get_model()
+    assert os.environ["SSL_CERT_FILE"] == str(certificate)
+    assert caplog.records == []
+
+
+def test_no_certificate_override_is_added_when_unset(monkeypatch, calls, caplog):
+    use_settings(monkeypatch, llm_model="openai:gpt-4.1-mini")
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    llm.get_model()
+    assert "SSL_CERT_FILE" not in os.environ
+    assert caplog.records == []
+import os
+import ssl

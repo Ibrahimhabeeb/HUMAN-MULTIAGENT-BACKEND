@@ -23,8 +23,8 @@ def test_each_mode_is_labelled_with_its_task_in_the_order_used(client, team, fin
     finish_parts()
     form = client.get("/study/questionnaire").json()
     assert form["modes"] == [
-        {"mode": "team", "label": "Agent team (login task)"},
-        {"mode": "single", "label": "Single assistant (login task)"},
+        {"mode": "team", "label": "Agent team (authentication task)"},
+        {"mode": "single", "label": "Single assistant (authentication task)"},
     ]
     assert form["scale"] == {"min": 1, "max": 7, "min_label": "Strongly disagree", "max_label": "Strongly agree"}
     assert form["text_hint"] == "Please don't include names or other personal details."

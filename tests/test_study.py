@@ -153,5 +153,5 @@ def test_content_endpoints(client):
     info = client.get("/study/content/information").json()
     consent = client.get("/study/content/consent").json()
     assert info["version"] == consent["version"] == consent_version()
-    assert len(consent["statements"]) == 6
+    assert len(consent["statements"]) == 7
     assert consent["statements"][-1] == "I agree to take part in this study."

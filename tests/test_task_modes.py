@@ -56,7 +56,7 @@ def test_chosen_task_has_two_independent_mode_attempts(client, db, enrol, task_i
 
 def test_task_selection_before_consent_stores_nothing(client, db, study_dirs):
     initial = client.get("/study/state").json()
-    assert initial["available_tasks"] == [{"id": "A", "label": "login task"}, {"id": "B", "label": "file download task"}]
+    assert initial["available_tasks"] == [{"id": "A", "label": "authentication task"}, {"id": "B", "label": "file download task"}]
     state = client.post("/study/start", json={"pilot": True, "task_id": "B"}).json()
     assert state["task"] == {"id": "B", "label": "file download task"}
     assert client.get("/study/state").json()["task"] == state["task"]

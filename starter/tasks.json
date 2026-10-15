@@ -1,4 +1,4 @@
 {
-  "A": {"label": "login task"},
+  "A": {"label": "authentication task"},
   "B": {"label": "file download task"}
 }
