@@ -28,9 +28,10 @@ def test_reports_each_test_of_the_workspace(client, db, single, study_dirs):
         ("tests/test_extra.py", "test_ok"): "passed",
         ("tests/test_functional.py", "test_registered_user_can_log_in"): "failed",
         ("tests/test_functional.py", "test_wrong_password_is_refused"): "failed",
+        ("tests/test_functional.py", "test_username_must_be_unique"): "failed",
     }
-    assert result["counts"] == {"passed": 1, "failed": 2, "error": 0, "skipped": 0}
-    assert result["message"] == "1 passed, 2 failed"
+    assert result["counts"] == {"passed": 1, "failed": 3, "error": 0, "skipped": 0}
+    assert result["message"] == "1 passed, 3 failed"
 
     logged = db.query(Event).filter(Event.type == "tests_run").one()
     assert logged.detail["counts"] == result["counts"]
@@ -113,24 +114,44 @@ def test_missing_workspace_import_is_identified_as_an_import_error(client, singl
 
 
 def test_valid_login_code_can_use_bcrypt_in_the_workspace_environment(client, single):
-    write(client, "app/auth.py", '''import bcrypt
+    write(client, "app/auth.py", '''import sqlite3
+
+import bcrypt
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from app.db import get_db
+
+router = APIRouter(prefix="/auth")
 
 
-def register_user(conn, username, password):
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=4)).decode()
-    conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed))
-    conn.commit()
+class Credentials(BaseModel):
+    username: str
+    password: str
 
 
-def login(conn, username, password):
-    row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone()
-    if row and bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
-        return True, "Logged in"
-    return False, "Invalid username or password"
+@router.post("/register", status_code=201)
+def register(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
+    hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt(rounds=4)).decode()
+    try:
+        cursor = conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (body.username, hashed))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="Username already taken")
+    return {"id": cursor.lastrowid, "username": body.username}
+
+
+@router.post("/login")
+def login(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
+    row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (body.username,)).fetchone()
+    if row is None or not bcrypt.checkpw(body.password.encode(), row["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    return {"message": "Logged in"}
 ''')
     result = run_tests(client).json()
     assert result["status"] == "passed"
-    assert result["counts"] == {"passed": 2, "failed": 0, "error": 0, "skipped": 0}
+    assert result["counts"] == {"passed": 3, "failed": 0, "error": 0, "skipped": 0}
 
 
 def test_workspace_tests_use_the_server_python_and_ignore_inherited_python_paths(client, single, monkeypatch):
@@ -145,4 +166,4 @@ def test_workspace_tests_use_the_server_python_and_ignore_inherited_python_paths
     assert command[1:3] == ["-m", "pytest"]
     env = launch.call_args.kwargs["env"]
     assert "PYTHONHOME" not in env and "PYTHONPATH" not in env
-    assert response.json()["counts"]["failed"] == 2  # functional tests ran, not an environment startup error
+    assert response.json()["counts"]["failed"] == 3  # functional tests ran, not an environment startup error
