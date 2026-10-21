@@ -15,7 +15,8 @@ NAMES: dict[str, str] = {
 THREADS = {"team": ("team",), "single": ("assistant",)}
 
 # Who answers without being routed: the developer's first message gets the Planner, then the Threat Modeller;
-# Review gets the Code Reviewer; approving a finding starts fix/test follow-ups concurrently.
+# Review gets the Code Reviewer; approving a finding starts the Reviewer's fix follow-up, and approving that fix
+# starts the Test/Verifier's follow-up.
 FIRST_ROUTE: list[Specialist] = ["planner", "threat_modeller"]
 REVIEW_ROUTE: list[Specialist] = ["reviewer"]
 

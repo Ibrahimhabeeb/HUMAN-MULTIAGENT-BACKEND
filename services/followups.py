@@ -8,7 +8,8 @@ KIND = "vulnerability_follow_up"
 
 
 def queue_missing(db: Session, ws: Workspace) -> None:
-    """Persist one fix/test follow-up per approved finding, including older sessions."""
+    """Persist one fix follow-up per approved finding, and one test follow-up once it has a fix, including older
+    sessions."""
     if ws.mode != "team" or ws.done_at is not None:
         return
     # Serialize reconciliation with approvals and other tabs, so refresh never queues duplicate work.
@@ -28,11 +29,12 @@ def queue_missing(db: Session, ws: Workspace) -> None:
             continue
         fixed = any(m.vulnerability_id == vulnerability.id for m in state.mitigations)
         tested = any(vulnerability.id in t.vulnerability_ids for t in state.tests)
-        for agent, covered, action, key in (
-            ("reviewer", fixed, "suggest_fix", "vulnerability"),
-            ("verifier", tested, "propose_test", "vulnerability_ids"),
+        # The Test/Verifier waits for a fix, so its test checks the mitigation the developer chose.
+        for agent, ready, covered, action, key in (
+            ("reviewer", True, fixed, "suggest_fix", "vulnerability"),
+            ("verifier", fixed, tested, "propose_test", "vulnerability_ids"),
         ):
-            if covered or (vulnerability.id, agent) in existing:
+            if not ready or covered or (vulnerability.id, agent) in existing:
                 continue
             if any(
                 a.action_type == action

@@ -158,7 +158,8 @@ def decide(db: Session, ws: Workspace, approval_id: int, decision: Decision) -> 
         approval.status = _STATUS_FOR[decision]
         approval.final_proposal = final
         approval.decided_at = utc_now()
-        if decision == "approve" and approval.action_type == "propose_vulnerability":
+        # An approved finding starts the Code Reviewer's fix; an approved fix starts the Test/Verifier's test.
+        if decision == "approve" and approval.action_type in ("propose_vulnerability", "suggest_fix"):
             followups.queue_missing(db, ws)
         log_event(
             db,

@@ -35,6 +35,7 @@ class AgentContext:
     earlier: list[Earlier] = field(default_factory=list)  # team mode only
     proposals: list[Proposal] = field(default_factory=list)
     target_vulnerability: str | None = None  # automatic follow-ups stay focused on the newly approved finding
+    no_test: tuple[str, str] | None = None  # the Test/Verifier's follow-up decided against a test: (reason, why)
 
     @property
     def task_description(self) -> str:

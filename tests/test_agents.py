@@ -530,15 +530,53 @@ def approve_finding(client, model):
     return finding_jobs(client)
 
 
-def test_approving_a_finding_queues_both_followups_once(client, team, model):
+def suggest_the_fix(client, model, job):
+    def reviewer(tools):
+        assert tools["suggest_fix"].invoke(FIX) == RECORDED
+        return "A fix for V1."
+
+    model.scripts["reviewer"] = reviewer
+    (fix,) = client.post(f"/chat/follow-ups/{job['id']}").json()["approvals"]
+    del model.scripts["reviewer"]
+    return fix
+
+
+def approve_fix(client, model):
+    # Returns the Test/Verifier's follow-up, which approving the fix queues.
+    (job,) = approve_finding(client, model)
+    assert decide(client, suggest_the_fix(client, model, job)["id"]).status_code == 200
+    (test_job,) = [m for m in finding_jobs(client) if m["data"]["agent"] == "verifier"]
+    return test_job
+
+
+def test_approving_a_finding_queues_only_the_fix_followup_once(client, team, model):
     jobs = approve_finding(client, model)
     assert [(m["data"]["agent"], m["data"]["status"], m["data"]["vulnerability_id"]) for m in jobs] == [
-        ("reviewer", "queued", "V1"), ("verifier", "queued", "V1"),
+        ("reviewer", "queued", "V1"),
     ]
     assert model.roles() == ["reviewer"]  # approval itself does not wait on model calls
     assert finding_jobs(client) == jobs  # refresh never creates extra jobs
     assert decide(client, jobs[0]["data"]["approval_id"]).status_code == 409
     assert finding_jobs(client) == jobs
+
+
+def test_approving_the_fix_queues_the_test_followup_once(client, team, model):
+    (job,) = approve_finding(client, model)
+    fix = suggest_the_fix(client, model, job)
+    assert [m["data"]["agent"] for m in finding_jobs(client)] == ["reviewer"]  # a waiting fix starts no test
+    assert decide(client, fix["id"]).status_code == 200
+    jobs = finding_jobs(client)
+    assert [(m["data"]["agent"], m["data"]["status"], m["data"]["vulnerability_id"]) for m in jobs] == [
+        ("reviewer", "complete", "V1"), ("verifier", "queued", "V1"),
+    ]
+    assert model.roles() == ["reviewer", "reviewer"]  # the review and the fix; approving the fix calls no model
+    assert finding_jobs(client) == jobs
+
+
+def test_a_rejected_fix_queues_no_test(client, team, model):
+    (job,) = approve_finding(client, model)
+    assert decide(client, suggest_the_fix(client, model, job)["id"], "reject").status_code == 200
+    assert [m["data"]["agent"] for m in finding_jobs(client)] == ["reviewer"]
 
 
 def test_rejected_vulnerabilities_do_not_queue_followups(client, db, team, model):
@@ -551,19 +589,23 @@ def test_rejected_vulnerabilities_do_not_queue_followups(client, db, team, model
 def test_existing_approved_findings_are_recovered_when_chat_reloads(client, team, model):
     client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
     jobs = finding_jobs(client)
-    assert len(jobs) == 2
+    assert [m["data"]["agent"] for m in jobs] == ["reviewer"]
     assert finding_jobs(client) == jobs
+    client.post("/workspace/state/mitigations", json={"vulnerability_id": "V1", "description": "Use placeholders"})
+    jobs = finding_jobs(client)
+    assert [m["data"]["agent"] for m in jobs] == ["reviewer", "verifier"]
     assert client.post(f"/chat/follow-ups/{jobs[0]['id']}").status_code == 200
     assert [m["data"]["status"] for m in finding_jobs(client)] == ["complete", "queued"]
 
 
 def test_verifier_extends_existing_tests_without_reading_application_source(client, team, model):
-    jobs = approve_finding(client, model)
+    job = approve_fix(client, model)
     original = client.get("/workspace/files/tests/test_functional.py").json()["content"]
     updated = original + "\n\ndef test_sql_injection_is_rejected():\n    assert True\n"
 
     def verifier(tools):
         assert "read_file" not in tools and "list_files" not in tools
+        assert "no_test_needed" in tools
         assert "tests/test_functional.py" in tools["list_test_files"].invoke({})
         assert "Only existing Python files" in tools["read_test_file"].invoke({"path": "app/auth.py"})
         assert "Only existing Python files" in tools["read_test_file"].invoke({"path": "tests/../app/auth.py"})
@@ -574,19 +616,20 @@ def test_verifier_extends_existing_tests_without_reading_application_source(clie
         return "Tests for V1, extending the existing test file."
 
     model.scripts["verifier"] = verifier
-    result = client.post(f"/chat/follow-ups/{jobs[1]['id']}").json()
+    result = client.post(f"/chat/follow-ups/{job['id']}").json()
     (test,) = result["approvals"]
     assert test["proposal"]["base_content"] == original
-    assert result["messages"][0]["id"] == jobs[1]["id"]  # placeholder becomes the reply
+    assert result["messages"][0]["id"] == job["id"]  # placeholder becomes the reply
     sent = model.last("verifier")["messages"][-1]
     assert "### tests/test_functional.py" in sent and "### app/auth.py" not in sent
+    assert f"The developer approved a fix for V1:\n- M1: {FIX['why']}" in sent
     assert client.get("/workspace/files/tests/test_functional.py").json()["content"] == original
     assert decide(client, test["id"]).status_code == 200
     assert client.get("/workspace/files/tests/test_functional.py").json()["content"] == updated
 
 
 def test_proposing_tests_cannot_remove_existing_tests_or_overwrite_later_edits(client, team, model):
-    jobs = approve_finding(client, model)
+    job = approve_fix(client, model)
     path = "tests/test_functional.py"
     original = client.get(f"/workspace/files/{path}").json()["content"]
     updated = original + "\n\ndef test_regression():\n    assert True\n"
@@ -598,7 +641,7 @@ def test_proposing_tests_cannot_remove_existing_tests_or_overwrite_later_edits(c
         return "One test proposal."
 
     model.scripts["verifier"] = verifier
-    (test,) = client.post(f"/chat/follow-ups/{jobs[1]['id']}").json()["approvals"]
+    (test,) = client.post(f"/chat/follow-ups/{job['id']}").json()["approvals"]
     human_version = original + "\n# A later human edit\n"
     client.put(f"/workspace/files/{path}", json={"content": human_version})
     refused = decide(client, test["id"])
@@ -607,18 +650,76 @@ def test_proposing_tests_cannot_remove_existing_tests_or_overwrite_later_edits(c
     assert client.get(f"/approvals/{test['id']}").json()["status"] == "pending"
 
 
+def test_verifier_can_decide_an_approved_fix_needs_no_new_test(client, db, team, model):
+    job = approve_fix(client, model)
+    why = "tests/test_functional.py already sends this attack."
+    test = {"path": "tests/test_security_login.py", "content": "def test_x():\n    assert True\n", "vulnerability_ids": ["V1"]}
+
+    def verifier(tools):
+        assert tools["no_test_needed"].invoke({"reason": "already_covered", "explanation": why}).startswith("Recorded.")
+        assert tools["propose_test"].invoke(test) == "Not recorded: you already decided that no new test is needed."
+        return "No new test for V1: tests/test_functional.py already checks it."
+
+    model.scripts["verifier"] = verifier
+    result = client.post(f"/chat/follow-ups/{job['id']}").json()
+    assert result["approvals"] == []
+    assert result["messages"][0]["content"] == "No new test for V1: tests/test_functional.py already checks it."
+    (skipped,) = [e for e in events(db) if e.type == "test_skipped"]
+    assert (skipped.actor, skipped.detail) == (
+        "verifier", {"vulnerability_id": "V1", "reason": "already_covered", "why": why},
+    )
+
+
+def test_verifier_cannot_skip_a_test_it_already_proposed(client, team, model):
+    job = approve_fix(client, model)
+    test = {"path": "tests/test_security_login.py", "content": "def test_x():\n    assert True\n", "vulnerability_ids": ["V1"]}
+
+    def verifier(tools):
+        assert tools["propose_test"].invoke(test) == RECORDED
+        refused = tools["no_test_needed"].invoke({"reason": "not_testable", "explanation": "Changed my mind."})
+        assert refused == "Not recorded: you already proposed a test in this reply."
+        return "A test for V1."
+
+    model.scripts["verifier"] = verifier
+    assert len(client.post(f"/chat/follow-ups/{job['id']}").json()["approvals"]) == 1
+
+
+def test_a_low_severity_fix_gets_no_automatic_test(client, db, team, model):
+    client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "severity": "Low"})
+    client.post("/workspace/state/mitigations", json={"vulnerability_id": "V1", "description": "Use placeholders"})
+    (job,) = [m for m in finding_jobs(client) if m["data"]["agent"] == "verifier"]
+    result = client.post(f"/chat/follow-ups/{job['id']}").json()
+    assert result["approvals"] == []
+    assert "Low severity" in result["messages"][0]["content"]
+    assert "verifier" not in model.roles()  # a fixed rule, so no model call
+    (skipped,) = [e for e in events(db) if e.type == "test_skipped"]
+    assert skipped.detail["reason"] == "low_severity"
+
+
+def test_asked_in_chat_the_verifier_is_not_offered_to_skip_the_test(client, team, model):
+    client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
+    say(client, "I want to build the login")
+    model.route_to = ("verifier", "you asked for a test")
+    say(client, "Please write a test for V1")
+    tools = model.last("verifier")["tools"]
+    assert "propose_test" in tools and "no_test_needed" not in tools
+
+
 def test_followups_run_concurrently_and_keep_fixes_and_tests_behind_approval(concurrent_client, enrol, model):
     client = concurrent_client
     enrol()
-    jobs = approve_finding(client, model)
+    test_job = approve_fix(client, model)  # V1 has an approved fix, so its test is next
+    client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "line": 30})  # V2 still needs a fix
+    (fix_job,) = [m for m in finding_jobs(client) if m["data"]["status"] == "queued" and m["data"]["agent"] == "reviewer"]
+    jobs = [fix_job, test_job]
     original = client.get("/workspace/files/app/auth.py").json()["content"]
     together = Barrier(2, timeout=5)
 
     def reviewer(tools):
         assert "propose_vulnerability" not in tools and "mark_resolved" not in tools
         together.wait()  # both agents must enter the model before either can finish
-        assert tools["suggest_fix"].invoke(FIX) == RECORDED
-        return "A fix for V1."
+        assert tools["suggest_fix"].invoke({**FIX, "vulnerability": "V2"}) == RECORDED
+        return "A fix for V2."
 
     def verifier(tools):
         together.wait()
@@ -665,8 +766,10 @@ def test_a_second_request_never_runs_the_same_followup_twice(concurrent_client, 
         assert first.result().status_code == 200
 
 
-def test_failed_followup_does_not_block_its_sibling_and_can_retry(client, team, model):
-    jobs = approve_finding(client, model)
+def test_failed_followup_does_not_block_the_next_one_and_can_retry(client, team, model):
+    client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
+    client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "line": 30})
+    jobs = finding_jobs(client)
 
     def broken(tools):
         tools["suggest_fix"].invoke(FIX)
@@ -676,8 +779,8 @@ def test_failed_followup_does_not_block_its_sibling_and_can_retry(client, team, 
     assert client.post(f"/chat/follow-ups/{jobs[0]['id']}").status_code == 502
     assert [m["data"]["status"] for m in finding_jobs(client)] == ["failed", "queued"]
     assert client.get("/approvals?status=pending").json() == []  # failed runs leave no partial proposals
-    assert client.post(f"/chat/follow-ups/{jobs[1]['id']}").status_code == 200
     model.scripts["reviewer"] = lambda tools: "Try again succeeded."
+    assert client.post(f"/chat/follow-ups/{jobs[1]['id']}").status_code == 200
     assert client.post(f"/chat/follow-ups/{jobs[0]['id']}").status_code == 200
     assert all(m["data"]["status"] == "complete" for m in finding_jobs(client))
 
@@ -717,7 +820,7 @@ def test_two_approval_requests_do_not_lose_either_finding(concurrent_client, enr
         responses = list(pool.map(lambda a: decide(client, a["id"]), findings))
     assert [r.status_code for r in responses] == [200, 200]
     assert len(client.get("/workspace/state").json()["vulnerabilities"]) == 2
-    assert len(finding_jobs(client)) == 4
+    assert len(finding_jobs(client)) == 2  # one fix follow-up each; tests wait for approved fixes
 
 
 def test_old_review_routes_do_not_leave_a_second_verifier_waiting(client, db, team, model):

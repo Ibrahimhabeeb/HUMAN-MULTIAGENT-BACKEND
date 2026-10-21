@@ -1,5 +1,6 @@
 import ast
 from pathlib import PurePosixPath
+from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
@@ -31,7 +32,15 @@ TOOLS_FOR: dict[str, list[str]] = {
         "mark_resolved",
     ],
     # Tests are written against the approved vulnerabilities and the task's interface, not from the code.
-    "verifier": ["read_task_description", "list_test_files", "read_test_file", "get_security_state", "propose_test"],
+    # no_test_needed is only offered in the follow-up after an approved fix; asked in chat, the Verifier writes the test.
+    "verifier": [
+        "read_task_description",
+        "list_test_files",
+        "read_test_file",
+        "get_security_state",
+        "propose_test",
+        "no_test_needed",
+    ],
     "assistant": ["list_files", "read_file", "suggest_fix", "propose_test"],
 }
 
@@ -264,6 +273,8 @@ def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -
     @tool
     def propose_test(path: str, content: str, vulnerability_ids: list[str] | None = None) -> str:
         """Propose a pytest file, e.g. path "tests/test_security_login.py", and the vulnerability ids it tests."""
+        if ctx.no_test:
+            return "Not recorded: you already decided that no new test is needed."
         ids = list(vulnerability_ids or [])
         if ctx.state:
             for existing in ctx.state.tests:
@@ -271,5 +282,19 @@ def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -
                     ids = list(dict.fromkeys([*existing.vulnerability_ids, *ids]))
         return record("propose_test", path=path, content=content, vulnerability_ids=ids, base_content=ctx.files.get(path))
 
+    @tool
+    def no_test_needed(reason: Literal["already_covered", "not_testable"], explanation: str) -> str:
+        """Decide that this vulnerability needs no new test, instead of proposing one. reason "already_covered": an
+        existing test, or one waiting for the developer's decision, already checks this attack (name it).
+        reason "not_testable": the weakness can't be shown through the task's interface in a pytest test (say what the
+        developer should check instead). Never use it just to avoid writing a test."""
+        if any(p.action_type == "propose_test" for p in ctx.proposals):
+            return "Not recorded: you already proposed a test in this reply."
+        ctx.no_test = (reason, explanation)
+        return "Recorded. Tell the developer in one or two sentences why no new test is needed."
+
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
-    return [available[name] for name in TOOLS_FOR[actor] if only is None or name in only]
+    return [
+        available[name] for name in TOOLS_FOR[actor]
+        if (only is None or name in only) and (name != "no_test_needed" or ctx.target_vulnerability)
+    ]
