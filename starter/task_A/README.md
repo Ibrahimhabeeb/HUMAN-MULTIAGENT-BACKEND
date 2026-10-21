@@ -1,4 +1,4 @@
-# Task: User login
+# Task: Authentication
 
 Implement user registration and login for a small web service.
 
