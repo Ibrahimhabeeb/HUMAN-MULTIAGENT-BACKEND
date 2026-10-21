@@ -47,7 +47,7 @@ def test_consent_creates_participant_and_opens_part_1(team, db):
 def test_consent_copies_the_starter_task_into_a_workspace(team):
     folder = Path(get_settings().workspaces_dir) / "P01_A_team"
     assert (folder / "app" / "auth.py").is_file()
-    assert (folder / "README.md").read_text(encoding="utf-8").startswith("# Task: User login")
+    assert (folder / "README.md").read_text(encoding="utf-8").startswith("# Task: Authentication")
 
 
 def test_consent_requires_the_current_form_version(client, db):
