@@ -291,7 +291,7 @@ def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -
         if any(p.action_type == "propose_test" for p in ctx.proposals):
             return "Not recorded: you already proposed a test in this reply."
         ctx.no_test = (reason, explanation)
-        return "Recorded. Tell the developer in one or two sentences why no new test is needed."
+        return "Recorded. The developer sees no message for this; reply with the reason in one sentence for the record."
 
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
     return [

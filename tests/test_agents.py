@@ -620,6 +620,7 @@ def test_verifier_extends_existing_tests_without_reading_application_source(clie
     (test,) = result["approvals"]
     assert test["proposal"]["base_content"] == original
     assert result["messages"][0]["id"] == job["id"]  # placeholder becomes the reply
+    assert "hidden" not in result["messages"][0]["data"]  # a reply with a test proposal is shown
     sent = model.last("verifier")["messages"][-1]
     assert "### tests/test_functional.py" in sent and "### app/auth.py" not in sent
     assert f"The developer approved a fix for V1:\n- M1: {FIX['why']}" in sent
@@ -663,7 +664,9 @@ def test_verifier_can_decide_an_approved_fix_needs_no_new_test(client, db, team,
     model.scripts["verifier"] = verifier
     result = client.post(f"/chat/follow-ups/{job['id']}").json()
     assert result["approvals"] == []
-    assert result["messages"][0]["content"] == "No new test for V1: tests/test_functional.py already checks it."
+    (message,) = result["messages"]
+    assert message["content"] == "No new test for V1: tests/test_functional.py already checks it."
+    assert (message["data"]["status"], message["data"]["hidden"]) == ("complete", True)  # kept, but not shown
     (skipped,) = [e for e in events(db) if e.type == "test_skipped"]
     assert (skipped.actor, skipped.detail) == (
         "verifier", {"vulnerability_id": "V1", "reason": "already_covered", "why": why},
@@ -690,10 +693,26 @@ def test_a_low_severity_fix_gets_no_automatic_test(client, db, team, model):
     (job,) = [m for m in finding_jobs(client) if m["data"]["agent"] == "verifier"]
     result = client.post(f"/chat/follow-ups/{job['id']}").json()
     assert result["approvals"] == []
-    assert "Low severity" in result["messages"][0]["content"]
+    assert result["messages"][0]["data"]["hidden"] is True
     assert "verifier" not in model.roles()  # a fixed rule, so no model call
     (skipped,) = [e for e in events(db) if e.type == "test_skipped"]
     assert skipped.detail["reason"] == "low_severity"
+
+
+def test_a_verifier_followup_without_a_test_is_hidden_even_without_the_tool(client, db, team, model):
+    job = approve_fix(client, model)
+    model.scripts["verifier"] = lambda tools: "No new test is needed for V1."
+    (message,) = client.post(f"/chat/follow-ups/{job['id']}").json()["messages"]
+    assert message["data"]["hidden"] is True
+    (skipped,) = [e for e in events(db) if e.type == "test_skipped"]
+    assert skipped.detail == {"vulnerability_id": "V1", "reason": "no_proposal", "why": "No new test is needed for V1."}
+
+
+def test_the_code_reviewers_followup_is_never_hidden(client, team, model):
+    (job,) = approve_finding(client, model)
+    model.scripts["reviewer"] = lambda tools: "I need more detail before suggesting a fix."
+    (message,) = client.post(f"/chat/follow-ups/{job['id']}").json()["messages"]
+    assert "hidden" not in message["data"]
 
 
 def test_asked_in_chat_the_verifier_is_not_offered_to_skip_the_test(client, team, model):

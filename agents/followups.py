@@ -99,9 +99,10 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
         vulnerability = next((v for v in ctx.state.vulnerabilities if v.id == target), None)
         if vulnerability is None or vulnerability.status != "open":
             reply = f"{target} is no longer an open vulnerability; no new proposals are needed."
+            ctx.no_test = ("no_longer_open", reply)
         elif actor == "verifier" and vulnerability.severity == "Low":
             # A fixed rule, so no model call: Low-severity findings get no automatic test.
-            reply = f"No new security test for {target}: it is Low severity. Ask me in the chat if you want one anyway."
+            reply = f"No new security test for {target}: it is Low severity."
             ctx.no_test = ("low_severity", reply)
         else:
             if actor == "reviewer":
@@ -135,15 +136,16 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
         if ws.done_at is not None:
             job.content = "This part finished before the follow-up completed; no new proposals were saved."
             ctx.proposals.clear()
-            ctx.no_test = None
         saved = chat.save_proposals(db, ws, ctx.proposals, commit=False)
         job.role = "agent"
         job.data = {**job.data, "status": "complete", "approval_ids": [a.id for a in saved]}
         log_event(db, ws.participant_code, "agent_replied", actor=actor, mode=ws.mode, detail={
             "seconds": round(time.monotonic() - started, 1), "proposals": len(saved), "vulnerability_id": target,
         })
-        if ctx.no_test:
-            reason, why = ctx.no_test
+        if actor == "verifier" and not saved and ws.done_at is None:
+            # No test proposed: the reason is logged for the researcher, not shown in the developer's chat.
+            reason, why = ctx.no_test or ("no_proposal", reply)
+            job.data = {**job.data, "hidden": True}
             log_event(db, ws.participant_code, "test_skipped", actor=actor, mode=ws.mode, detail={
                 "vulnerability_id": target, "reason": reason, "why": why,
             })
