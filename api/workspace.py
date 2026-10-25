@@ -1,20 +1,18 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Body, HTTPException
 
+from api.dependencies import Db
 from api.errors import run
-from db import get_db
 from schemas.linting import LintRequest, LintResult
 from schemas.runner import RunResult
 from schemas.security_state import Category, HumanCategory, SecurityState
 from schemas.workspace import FileWrite, FolderCreate, Notes, NotesWrite, RenameRequest
 from services import linting, runner, state_service, study, workspace
 
-# Everything here acts on the current participant's open part, so no ids are needed in the URLs.
+# The session header selects the participant's open part; participant ids are not accepted in URLs.
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
-Db = Annotated[Session, Depends(get_db)]
 
 
 @router.post("/lint")

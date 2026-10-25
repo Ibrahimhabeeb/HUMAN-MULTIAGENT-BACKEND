@@ -1,0 +1,9 @@
+{
+  "theme": "light",
+  "notifications": true,
+  "page_size": 20,
+  "zoom": 1.25,
+  "signature": null,
+  "shortcuts": ["search", "save"],
+  "editor": {"tab_size": 4, "word_wrap": false}
+}

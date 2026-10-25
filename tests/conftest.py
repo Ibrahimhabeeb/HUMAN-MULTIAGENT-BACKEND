@@ -13,6 +13,22 @@ from main import app
 from services import content, study
 
 
+class StudyClient(TestClient):
+    def __init__(self, app, token=None):
+        super().__init__(app)
+        if token is None:
+            response = super().request("POST", "/study/session", json={"mode": "team"})
+            assert response.status_code == 200
+            token = response.json()["token"]
+        self.headers["X-Session-Token"] = token
+
+    def request(self, *args, **kwargs):
+        response = super().request(*args, **kwargs)
+        if token := response.headers.get("X-Session-Token"):
+            self.headers["X-Session-Token"] = token
+        return response
+
+
 @pytest.fixture(autouse=True)
 def fresh_study_memory():
     study.reset_memory()
@@ -42,11 +58,11 @@ def db():
 
 @pytest.fixture
 def client(db):
-    return TestClient(app)
+    return StudyClient(app)
 
 
 @pytest.fixture
-def concurrent_client(db, tmp_path):
+def concurrent_client(db, tmp_path, client):
     # Concurrency tests need a distinct session/connection per request, as in the running server.
     engine = create_engine(f"sqlite:///{(tmp_path / 'concurrent.db').as_posix()}", connect_args={"check_same_thread": False})
     init_db(engine)
@@ -58,7 +74,7 @@ def concurrent_client(db, tmp_path):
 
     previous = app.dependency_overrides[get_db]
     app.dependency_overrides[get_db] = isolated_db
-    http = TestClient(app)
+    http = StudyClient(app, token=client.headers["X-Session-Token"])
     yield http
     http.close()
     app.dependency_overrides[get_db] = previous

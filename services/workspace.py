@@ -29,10 +29,15 @@ def folder(ws: Workspace) -> Path:
     return legacy if ws.task_id == legacy_task and not current.exists() and legacy.is_dir() else current
 
 
-def task_label(task_id: str) -> str:
+def task_info(task_id: str) -> dict[str, str]:
     tasks_file = Path(get_settings().starter_dir) / "tasks.json"
     tasks = json.loads(tasks_file.read_text(encoding="utf-8")) if tasks_file.is_file() else {}
-    return tasks.get(task_id, {}).get("label", f"task {task_id}")
+    task = tasks.get(task_id, {})
+    return {"id": task_id, "label": task.get("label", f"task {task_id}"), "cwe": task.get("cwe", "")}
+
+
+def task_label(task_id: str) -> str:
+    return task_info(task_id)["label"]
 
 
 def create_from_starter(ws: Workspace) -> None:

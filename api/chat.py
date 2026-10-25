@@ -1,11 +1,8 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter
 
 from agents import followups, single, team
+from api.dependencies import Db
 from api.errors import run
-from db import get_db
 from schemas.chat import MessageCreate, MessageOut, TurnResult
 from services import chat, study
 from services.followups import queue_missing
@@ -14,7 +11,6 @@ from services.followups import queue_missing
 # Agents only talk and propose; what they propose comes back as pending approvals.
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-Db = Annotated[Session, Depends(get_db)]
 MODES = {"team": team, "single": single}
 
 

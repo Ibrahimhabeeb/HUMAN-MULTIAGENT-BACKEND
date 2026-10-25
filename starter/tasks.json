@@ -1,4 +1,7 @@
 {
-  "A": {"label": "authentication task"},
-  "B": {"label": "file download task"}
+  "A": {"label": "authentication task", "cwe": "CWE-89"},
+  "B": {"label": "file download task", "cwe": "CWE-22"},
+  "C": {"label": "comment rendering task", "cwe": "CWE-79"},
+  "D": {"label": "preferences import task", "cwe": "CWE-502"},
+  "E": {"label": "account email update task", "cwe": "CWE-352"}
 }

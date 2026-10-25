@@ -8,7 +8,10 @@ from models import Event, Participant, Workspace
 from services import approvals, content, study, workspace
 
 
-@pytest.mark.parametrize("task_id, source", [("A", "app/auth.py"), ("B", "app/storage.py")])
+@pytest.mark.parametrize("task_id, source", [
+    ("A", "app/auth.py"), ("B", "app/storage.py"), ("C", "app/comments.py"),
+    ("D", "app/preferences.py"), ("E", "app/account.py"),
+])
 @pytest.mark.parametrize("first_mode", ["team", "single"])
 def test_chosen_task_has_two_independent_mode_attempts(client, db, enrol, task_id, source, first_mode):
     first = enrol(mode=first_mode, task_id=task_id)
@@ -54,20 +57,22 @@ def test_chosen_task_has_two_independent_mode_attempts(client, db, enrol, task_i
     assert (snapshot_root / f"P01_{task_id}_{second_mode}" / "01_done" / source).read_text(encoding="utf-8") == "# second attempt"
 
 
-def test_task_selection_before_consent_stores_nothing(client, db, study_dirs):
+@pytest.mark.parametrize("task_id", ["A", "B", "C", "D", "E"])
+def test_task_selection_before_consent_stores_nothing(client, db, study_dirs, task_id):
     initial = client.get("/study/state").json()
-    assert initial["available_tasks"] == [{"id": "A", "label": "authentication task"}, {"id": "B", "label": "file download task"}]
-    state = client.post("/study/start", json={"pilot": True, "task_id": "B"}).json()
-    assert state["task"] == {"id": "B", "label": "file download task"}
+    assert initial["available_tasks"] == [workspace.task_info(task) for task in ["A", "B", "C", "D", "E"]]
+    assert [task["cwe"] for task in initial["available_tasks"]] == ["CWE-89", "CWE-22", "CWE-79", "CWE-502", "CWE-352"]
+    state = client.post("/study/start", json={"pilot": True, "task_id": task_id}).json()
+    assert state["task"] == {"id": task_id, "label": workspace.task_label(task_id)}
     assert client.get("/study/state").json()["task"] == state["task"]
     client.post("/study/continue")
     assert db.query(Participant).count() == 0
     assert db.query(Event).count() == 0
     assert not (study_dirs / "workspaces").exists()
-    assert client.post("/study/consent", json={"consent_version": content.load("consent")[0]}).json()["task"]["id"] == "B"
+    assert client.post("/study/consent", json={"consent_version": content.load("consent")[0]}).json()["task"]["id"] == task_id
 
 
-@pytest.mark.parametrize("task_id", ["C", "../task_A", "", None])
+@pytest.mark.parametrize("task_id", ["F", "../task_A", "", None])
 def test_unknown_tasks_are_rejected_without_creating_a_session(client, db, task_id):
     assert client.post("/study/start", json={"task_id": task_id}).status_code == 422
     assert client.get("/study/state").json()["screen"] == "start"

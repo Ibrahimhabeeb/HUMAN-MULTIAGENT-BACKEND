@@ -1,8 +1,8 @@
 # Secure Coding Room: backend
 
 The FastAPI backend for the study that compares a team of AI agents with a single AI assistant for secure coding.
-It runs one participant session at a time: information sheet, consent, two parts (one in each mode) and a
-questionnaire.
+Each browser tab has its own participant session: information sheet, consent, two parts (one in each mode)
+and a questionnaire. Different participants can work at the same time.
 
 ## Setup
 
@@ -57,8 +57,14 @@ The tests never call the AI model and never touch `data/app.db`.
 
 Everything happens in the browser. The frontend asks `GET /study/state` which screen to show.
 
+The frontend first calls `POST /study/session` with `{"mode": "team"}` (or `"single"`). It keeps the returned
+random token in `sessionStorage` and sends it as `X-Session-Token` on subsequent study, workspace, chat and
+approval requests. Missing, unknown or revoked tokens receive 401; there is no global active-participant fallback.
+Public information/consent content and health checks do not expose participant data.
+
 1. **Start**: choose the task, then `POST /study/start` with `{"pilot": false, "task_id": "A"}`
-   (`A` = login, `B` = file download; defaults to `A`). Nothing is stored yet.
+   (`A` = authentication, `B` = file download, `C` = comment rendering,
+   `D` = preferences import, `E` = account email update; defaults to `A`). Nothing is stored yet.
 2. **Information sheet**, then **consent**: `POST /study/continue`, then `POST /study/consent`. Only now is the
    participant ID created: `P01`, `P02`... or `X01`... for pilots.
 3. **Part 1**: the chosen task, in the mode chosen with `POST /study/mode` (`team` or `single`).
@@ -69,7 +75,19 @@ Everything happens in the browser. The frontend asks `GET /study/state` which sc
 
 **Restart for new participant**
 (`POST /study/restart`) ends the session at any point and keeps the data, marking the participant incomplete.
-Each participant starts in the mode the previous one ended in, so the starting mode alternates.
+Finish and Restart revoke the old token and return a fresh token in the `X-Session-Token` response header;
+the frontend replaces its stored token. The same tab defaults to the previous ending mode for the next
+participant. A fresh tab defaults to team; the researcher can select either starting mode.
+
+Before consent, setup is held only in server memory, keyed by the token hash. After consent, `study_sessions`
+stores only the SHA-256 token hash and participant code. A server restart preserves consented sessions but
+discards pre-consent setup. Run one backend worker while pre-consent sessions use process memory.
+Tokens and hashes are not added to questionnaire answers or interaction events.
+
+Closing a tab clears its browser token; it does not automatically delete or complete saved study data.
+Open a fresh study tab for a different participant rather than duplicating a tab with an existing session,
+because browsers can copy sessionStorage when duplicating tabs. Existing participant records without a token
+are preserved, but are never automatically assigned to a new browser.
 
 During a part:
 
@@ -110,7 +128,7 @@ None of it is committed to git.
 
 | Location | Contents |
 |---|---|
-| `data/app.db` | Participants, consent records, the event log, approvals, chat messages, questionnaire answers |
+| `data/app.db` | Participants, hashed session tokens, consent records, the event log, approvals, chat messages, questionnaire answers |
 | `workspaces/<ID>_<task>_<mode>/` | An independent code workspace for each mode |
 | `snapshots/<ID>_<task>_<mode>/` | That mode's code at each review, test run and Done |
 | `results/` | Exports |

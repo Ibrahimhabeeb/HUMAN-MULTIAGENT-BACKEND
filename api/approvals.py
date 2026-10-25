@@ -1,17 +1,13 @@
-from typing import Annotated
+from fastapi import APIRouter
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-
+from api.dependencies import Db
 from api.errors import run
-from db import get_db
 from schemas.approval import ApprovalOut, ApprovalStatus, DecisionRequest
 from services import approvals, study
 
 # Proposals waiting for (or already given) the human's decision, for the current part.
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
-Db = Annotated[Session, Depends(get_db)]
 
 
 @router.get("")

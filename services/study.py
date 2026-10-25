@@ -1,42 +1,21 @@
-from dataclasses import dataclass
-from typing import Literal
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models import ConsentRecord, Participant, SurveyResponse, Workspace
+from models import ConsentRecord, Participant, StudySession, SurveyResponse, Workspace
 from models.common import as_utc, utc_now
 from schemas.security_state import SecurityState
 from schemas.study import Mode, Screen, TaskId
-from services import content, workspace
+from services import content, sessions, workspace
 from services.errors import ConflictError
 from services.events import log_event
 
 
-@dataclass
-class _Pending:
-    pilot: bool
-    screen: Literal["information", "consent"]
-    task_id: TaskId
-
-
-class _Memory:
-    # Kept in server memory, not the database: nothing about a person is stored before they consent.
-    def __init__(self) -> None:
-        self.switch: Mode = "team"
-        self.pending: _Pending | None = None
-
-
-_memory = _Memory()
-
-
 def reset_memory() -> None:
-    global _memory
-    _memory = _Memory()
+    sessions.reset_memory()
 
 
 def active_participant(db: Session) -> Participant | None:
-    return db.scalar(select(Participant).where(Participant.status == "active"))
+    return sessions.participant(db)
 
 
 def require_participant(db: Session) -> Participant:
@@ -131,15 +110,16 @@ def _screen_for(db: Session, participant: Participant, parts: dict[str, Workspac
 def get_state(db: Session) -> dict:
     participant = active_participant(db)
     if participant is None:
-        if _memory.pending is not None:
-            task_id = _memory.pending.task_id
+        tab = sessions.tab(db)
+        if tab.pending is not None:
+            task_id = tab.pending.task_id
             return {
-                "screen": _memory.pending.screen,
-                "mode": _memory.switch,
-                "pilot": _memory.pending.pilot,
+                "screen": tab.pending.screen,
+                "mode": tab.switch,
+                "pilot": tab.pending.pilot,
                 "task": {"id": task_id, "label": workspace.task_label(task_id)},
             }
-        return {"screen": "start", "mode": _memory.switch}
+        return {"screen": "start", "mode": tab.switch}
 
     parts = _workspaces(db, participant.code)
     current = parts.get(participant.mode)
@@ -167,21 +147,21 @@ def get_state(db: Session) -> dict:
 
 
 def start(db: Session, pilot: bool, task_id: TaskId = "A") -> None:
-    if active_participant(db) is not None or _memory.pending is not None:
+    if active_participant(db) is not None or sessions.tab(db).pending is not None:
         raise ConflictError("A session is already in progress. Use Restart first.")
-    _memory.pending = _Pending(pilot=pilot, screen="information", task_id=task_id)
+    sessions.tab(db).pending = sessions.Pending(pilot=pilot, screen="information", task_id=task_id)
 
 
-def continue_to_consent() -> None:
-    if _memory.pending is None or _memory.pending.screen != "information":
+def continue_to_consent(db: Session) -> None:
+    if sessions.tab(db).pending is None or sessions.tab(db).pending.screen != "information":
         raise ConflictError("The information sheet is not open")
-    _memory.pending.screen = "consent"
+    sessions.tab(db).pending.screen = "consent"
 
 
-def decline() -> None:
-    if _memory.pending is None:
+def decline(db: Session) -> None:
+    if sessions.tab(db).pending is None:
         raise ConflictError("There is no session to leave")
-    _memory.pending = None
+    sessions.tab(db).pending = None
 
 
 # ---- consent: the first moment anything is stored ---------------------------------------------------
@@ -195,7 +175,12 @@ def _next_code(db: Session, pilot: bool) -> str:
 
 
 def give_consent(db: Session, consent_version: str) -> Participant:
-    pending = _memory.pending
+    with sessions.consent_lock:
+        return _give_consent(db, consent_version)
+
+
+def _give_consent(db: Session, consent_version: str) -> Participant:
+    pending = sessions.tab(db).pending
     if pending is None or pending.screen != "consent":
         raise ConflictError("The consent form is not open")
     current_version, _ = content.load("consent")
@@ -203,7 +188,7 @@ def give_consent(db: Session, consent_version: str) -> Participant:
         raise ConflictError(f"Consent version {consent_version} is out of date (current: {current_version})")
 
     try:
-        participant = Participant(code=_next_code(db, pending.pilot), mode=_memory.switch)
+        participant = Participant(code=_next_code(db, pending.pilot), mode=sessions.tab(db).switch)
         db.add(participant)
         db.add(ConsentRecord(participant_code=participant.code, consent_version=consent_version))
         log_event(
@@ -213,12 +198,13 @@ def give_consent(db: Session, consent_version: str) -> Participant:
             mode=participant.mode,
             detail={"pilot": pending.pilot, "consent_version": consent_version},
         )
+        db.add(StudySession(token_hash=sessions.current_hash(db), participant_code=participant.code))
         _open_mode(db, participant, participant.mode, pending.task_id)
         db.commit()
     except Exception:
         db.rollback()
         raise
-    _memory.pending = None
+    sessions.forget_pending(db)
     return participant
 
 
@@ -228,7 +214,7 @@ def give_consent(db: Session, consent_version: str) -> Participant:
 def switch_mode(db: Session, mode: Mode) -> None:
     participant = active_participant(db)
     if participant is None:
-        _memory.switch = mode  # the researcher sets the starting mode before the next participant
+        sessions.tab(db).switch = mode  # the researcher sets the starting mode before the next participant
         return
     if participant.mode == mode:
         return
@@ -242,22 +228,25 @@ def switch_mode(db: Session, mode: Mode) -> None:
         raise
 
 
-def finish(db: Session) -> None:
+def finish(db: Session) -> Mode:
     participant = require_participant(db)
     if _screen_for(db, participant, _workspaces(db, participant.code)) != "thank_you":
         raise ConflictError("The participant has not reached the end of the study yet")
     participant.status = "complete"
     log_event(db, participant.code, "participant_finished")
+    sessions.revoke(db)
     db.commit()
-    _memory.switch = participant.mode
+    return participant.mode
 
 
-def restart(db: Session) -> None:
-    _memory.pending = None
+def restart(db: Session) -> Mode:
     participant = active_participant(db)
     if participant is None:
-        return
+        mode = sessions.tab(db).switch
+        sessions.revoke(db)
+        return mode
     participant.status = "incomplete"  # their data is kept
     log_event(db, participant.code, "session_restarted", actor="researcher")
+    sessions.revoke(db)
     db.commit()
-    _memory.switch = participant.mode
+    return participant.mode

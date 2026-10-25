@@ -70,7 +70,7 @@ def test_codes_count_up_separately_for_pilots_and_are_never_reused(client, enrol
     assert enrol()["participant"] == "P02"
 
 
-def test_only_one_session_at_a_time(client, team):
+def test_one_participant_per_tab_session(client, team):
     assert client.post("/study/start", json={"pilot": False}).status_code == 409
 
 

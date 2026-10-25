@@ -92,7 +92,10 @@ def test_messages_must_have_content(client, team, model):
     assert model.calls == []
 
 
-@pytest.mark.parametrize("task_id, source", [("A", "app/auth.py"), ("B", "app/storage.py")])
+@pytest.mark.parametrize("task_id, source", [
+    ("A", "app/auth.py"), ("B", "app/storage.py"), ("C", "app/comments.py"),
+    ("D", "app/preferences.py"), ("E", "app/account.py"),
+])
 def test_the_first_message_runs_the_planner_then_the_threat_modeller_without_a_handoff(client, db, enrol, model, task_id, source):
     enrol(task_id=task_id)
     task = client.get("/workspace/files/README.md").json()["content"]
