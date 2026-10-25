@@ -115,31 +115,56 @@ def finish_parts(client):
     return _finish
 
 
-# A stand-in for content/questionnaire.json; the real wording is added once it is approved.
+# A compact stand-in for content/questionnaire.json.
 SAMPLE_QUESTIONNAIRE = {
     "version": "test",
     "sections": [
         {
             "title": "Each mode",
             "asked_for": "each_mode",
-            "questions": [{"key": "confidence", "type": "scale", "text": "I am confident my final code is secure."}],
+            "questions": [
+                {
+                    "number": 1,
+                    "key": "confidence",
+                    "type": "scale",
+                    "text": "I am confident my final code is secure.",
+                    "scale": {"min": 1, "max": 7, "min_label": "Strongly disagree", "max_label": "Strongly agree"},
+                },
+                {
+                    "number": 2,
+                    "key": "effort",
+                    "type": "number",
+                    "text": "How much effort did you expend?",
+                    "scale": {"min": 0, "max": 100, "min_label": "Very low", "max_label": "Very high"},
+                },
+            ],
         },
         {
             "title": "Agent team",
             "asked_for": "team",
-            "questions": [{"key": "roles_clear", "type": "scale", "text": "Each agent's role was clear."}],
+            "questions": [
+                {
+                    "number": 3,
+                    "key": "roles_clear",
+                    "type": "scale",
+                    "text": "Each agent's role was clear.",
+                    "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"},
+                    "allow_not_applicable": True,
+                }
+            ],
         },
         {
             "title": "Comparing",
             "asked_for": "once",
             "questions": [
                 {
+                    "number": 4,
                     "key": "preferred",
                     "type": "choice",
                     "text": "Which would you rather use?",
                     "options": ["Agent team", "Single assistant", "No preference"],
                 },
-                {"key": "difference", "type": "text", "text": "What was the biggest difference?"},
+                {"number": 5, "key": "difference", "type": "text", "text": "What was the biggest difference?"},
             ],
         },
     ],

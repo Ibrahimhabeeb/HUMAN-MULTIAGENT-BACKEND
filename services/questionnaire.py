@@ -11,7 +11,6 @@ from schemas.questionnaire import (
     Answer,
     Question,
     Questionnaire,
-    Scale,
 )
 from services import study
 from services.errors import ConflictError, InvalidInputError, NotFoundError
@@ -63,12 +62,16 @@ def get(db: Session) -> dict:
     return {**load().model_dump(), "modes": modes}
 
 
-def _value(question: Question, scale: Scale, value: int | str | None) -> str | None:
+def _value(question: Question, value: int | str | None) -> str | None:
     if value is None or value == "":
         return None
-    if question.type == "scale":
-        if not isinstance(value, int) or not scale.min <= value <= scale.max:
-            raise InvalidInputError(f"{question.key}: choose a number from {scale.min} to {scale.max}")
+    if question.type in {"scale", "number"}:
+        if value == "Not applicable" and question.allow_not_applicable:
+            return value
+        if type(value) is not int or question.scale is None or not question.scale.min <= value <= question.scale.max:
+            scale = question.scale
+            bounds = f"{scale.min} to {scale.max}" if scale else "the permitted range"
+            raise InvalidInputError(f"{question.key}: choose a number from {bounds}")
         return str(value)
     if not isinstance(value, str):
         raise InvalidInputError(f"{question.key}: the answer must be text")
@@ -90,7 +93,7 @@ def submit(db: Session, answers: list[Answer]) -> None:
             raise InvalidInputError(f"There is no question {answer.item} for {answer.condition}")
         if key in given:
             raise InvalidInputError(f"{answer.item} ({answer.condition}) is answered twice")
-        given[key] = _value(questions[key], questionnaire.scale, answer.value)
+        given[key] = _value(questions[key], answer.value)
 
     # A row for every question, so a skipped one is stored as NULL. No event is logged, so no time goes with it.
     for condition, item in questions:

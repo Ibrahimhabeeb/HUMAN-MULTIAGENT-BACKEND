@@ -37,6 +37,8 @@ def test_export_writes_a_row_per_participant_without_pilots_or_withdrawn(db, tak
         "first_mode",
         "confidence_team",
         "confidence_single",
+        "effort_team",
+        "effort_single",
         "roles_clear_team",
         "preferred",
         "difference",

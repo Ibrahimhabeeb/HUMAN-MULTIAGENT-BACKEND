@@ -1,43 +1,59 @@
 {
-  "version": "v1",
-  "scale": {"min": 1, "max": 7, "min_label": "Strongly disagree", "max_label": "Strongly agree"},
+  "version": "v1.1",
   "sections": [
     {
-      "title": "Both ways of working",
-      "intro": "Rate each statement once for each way of working.",
+      "title": "Confidence and usability",
+      "intro": "1 = Strongly disagree; 5 = Strongly agree.",
       "asked_for": "each_mode",
       "questions": [
-        {"key": "threat_modelling", "type": "scale", "text": "This way of working helped me think about what could go wrong before and while I wrote the code."},
-        {"key": "testing", "type": "scale", "text": "This way of working helped me test whether my code was secure."},
-        {"key": "revision", "type": "scale", "text": "This way of working helped me find and fix security problems in my code."},
-        {"key": "confidence", "type": "scale", "text": "I am confident that my final code is secure."},
-        {"key": "control", "type": "scale", "text": "I felt in control of the decisions and the code."},
-        {"key": "approving", "type": "scale", "text": "Approving or rejecting each suggestion helped me check it before using it."},
-        {"key": "workload", "type": "scale", "text": "I could keep up with the AI's messages and suggestions without feeling overloaded."}
+        {"number": 1, "key": "functional_confidence", "type": "scale", "text": "I am confident that the code I completed with the {mode} meets the task's functional requirements.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}},
+        {"number": 2, "key": "security_confidence", "type": "scale", "text": "I am confident that the code I completed with the {mode} meets the task's security requirements.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}},
+        {"number": 3, "key": "secure_code_trust", "type": "scale", "text": "I trusted the {mode} to suggest secure code.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}},
+        {"number": 4, "key": "ease_of_use", "type": "scale", "text": "I found the {mode} easy to work with.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}},
+        {"number": 5, "key": "unnecessary_complexity", "type": "scale", "text": "I found working with the {mode} unnecessarily complex.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}}
       ]
     },
     {
-      "title": "The agent team",
-      "intro": "These statements are about the agent team only.",
+      "title": "Reliability and caution",
+      "intro": "1 = Not at all; 7 = Extremely.",
+      "asked_for": "each_mode",
+      "questions": [
+        {"number": 6, "key": "recommendation_reliability", "type": "scale", "text": "I found the {mode}'s recommendations reliable.", "scale": {"min": 1, "max": 7, "min_label": "Not at all", "max_label": "Extremely"}},
+        {"number": 7, "key": "recommendation_wariness", "type": "scale", "text": "I was wary of the {mode}'s recommendations.", "scale": {"min": 1, "max": 7, "min_label": "Not at all", "max_label": "Extremely"}}
+      ]
+    },
+    {
+      "title": "Workload",
+      "intro": "Enter a number from 0 = Very low to 100 = Very high for each mode.",
+      "asked_for": "each_mode",
+      "questions": [
+        {"number": 8, "key": "effort", "type": "number", "text": "How much effort did you expend to complete the coding task with the {mode}?", "scale": {"min": 0, "max": 100, "min_label": "Very low", "max_label": "Very high"}}
+      ]
+    },
+    {
+      "title": "Human control",
+      "intro": "1 = No control; 7 = Complete control.",
+      "asked_for": "each_mode",
+      "questions": [
+        {"number": 9, "key": "human_control", "type": "scale", "text": "How much control did you feel you had over the {mode}'s work during the task?", "scale": {"min": 1, "max": 7, "min_label": "No control", "max_label": "Complete control"}}
+      ]
+    },
+    {
+      "title": "Agent team only",
+      "intro": "1 = Strongly disagree; 5 = Strongly agree. Select Not applicable if appropriate.",
       "asked_for": "team",
       "questions": [
-        {"key": "choosing_agents", "type": "scale", "text": "It was clear which agent to consult at each point."},
-        {"key": "facilitator", "type": "scale", "text": "The Facilitator's suggestions helped me decide whom to consult."},
-        {"key": "roles_clear", "type": "scale", "text": "Each agent's role was clear."},
-        {"key": "state_tracking", "type": "scale", "text": "The shared security state helped me keep track of risks, mitigations and evidence."},
-        {"key": "state_visible", "type": "scale", "text": "Risks raised early stayed visible until they were dealt with."},
-        {"key": "evidence", "type": "scale", "text": "Test results linked to risks showed me which risks were dealt with."}
+        {"number": 10, "key": "specialist_role_clarity", "type": "scale", "text": "It was clear which specialist agent to consult for the issue I was working on.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}, "allow_not_applicable": true},
+        {"number": 11, "key": "state_unresolved_visibility", "type": "scale", "text": "It was clear which security concerns remained unresolved in the shared security state.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}, "allow_not_applicable": true},
+        {"number": 12, "key": "state_evidence_traceability", "type": "scale", "text": "I could trace an identified security concern to the evidence recorded about it in the shared security state.", "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"}, "allow_not_applicable": true}
       ]
     },
     {
-      "title": "Comparing the two",
-      "intro": "Choose one answer for each question.",
+      "title": "Final feedback",
+      "intro": "Choose one answer for Question 13.",
       "asked_for": "once",
       "questions": [
-        {"key": "more_secure", "type": "choice", "text": "Which helped you more with security?", "options": ["Agent team", "Single assistant", "No difference"]},
-        {"key": "more_control", "type": "choice", "text": "In which did you feel more in control?", "options": ["Agent team", "Single assistant", "No difference"]},
-        {"key": "less_effort", "type": "choice", "text": "Which took less effort?", "options": ["Agent team", "Single assistant", "No difference"]},
-        {"key": "prefer", "type": "choice", "text": "Which would you rather use for security-sensitive code?", "options": ["Agent team", "Single assistant", "No preference"]}
+        {"number": 13, "key": "future_security_mode", "type": "choice", "text": "Which mode would you choose for a future security-sensitive coding task?", "options": ["Agent team", "Single assistant", "No preference", "Not sure"]}
       ]
     },
     {
@@ -45,9 +61,9 @@
       "intro": "Choose one answer for each question.",
       "asked_for": "once",
       "questions": [
-        {"key": "python_experience", "type": "choice", "text": "How long have you programmed in Python?", "options": ["Less than 1 year", "1–3 years", "More than 3 years"]},
-        {"key": "security_familiarity", "type": "choice", "text": "How familiar are you with secure coding, e.g. the OWASP Top 10?", "options": ["Not familiar", "Somewhat familiar", "Very familiar"]},
-        {"key": "ai_assistant_use", "type": "choice", "text": "How often do you use AI coding assistants?", "options": ["Never", "Sometimes", "Often"]}
+        {"number": 14, "key": "python_experience", "type": "choice", "text": "How long have you programmed in Python?", "options": ["Less than 1 year", "1–3 years", "More than 3 years"]},
+        {"number": 15, "key": "security_familiarity", "type": "choice", "text": "How familiar are you with secure coding, e.g. the OWASP Top 10?", "options": ["Not familiar", "Somewhat familiar", "Very familiar"]},
+        {"number": 16, "key": "ai_assistant_use", "type": "choice", "text": "How often do you use AI coding assistants?", "options": ["Never", "Sometimes", "Often"]}
       ]
     }
   ]
