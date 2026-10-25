@@ -41,6 +41,7 @@ class Question(BaseModel):
 
 class Section(BaseModel):
     title: str
+    show_title: bool = True  # titles are metadata too; the study form can keep a question-led flow.
     intro: str | None = None
     asked_for: AskedFor
     questions: list[Question] = Field(min_length=1)

@@ -89,11 +89,14 @@ def test_numeric_answers_and_an_explicit_not_applicable_answer_are_saved(client,
     assert saved[("team", "roles_clear")] == "Not applicable"
 
 
-def test_v11_questionnaire_has_the_approved_16_question_structure():
+def test_v12_questionnaire_has_the_security_specific_17_question_structure():
     form = questionnaire.load()
     questions = [question for section in form.sections for question in section.questions]
-    assert form.version == "v1.1"
-    assert [question.number for question in questions] == list(range(1, 17))
+    assert form.version == "v1.2"
+    assert [question.number for question in questions] == list(range(1, 18))
+    assert questions[2].key == "vulnerability_risk_trust"
+    assert questions[3].key == "mitigation_trust"
     assert questions[7].type == "number" and questions[7].scale.min == 0 and questions[7].scale.max == 100
-    assert all(question.allow_not_applicable for question in questions[9:12])
-    assert not any(question.allow_not_applicable for question in questions[:9])
+    assert questions[8].key == "security_advice_effort"
+    assert all(question.allow_not_applicable for question in questions[10:13])
+    assert not any(question.allow_not_applicable for question in questions[:10])
