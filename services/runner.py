@@ -1,3 +1,4 @@
+import ast
 import os
 import re
 import subprocess
@@ -5,7 +6,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import get_args
+from typing import Literal, get_args
 
 from sqlalchemy.orm import Session
 
@@ -120,19 +121,38 @@ def _summary(code: int | None, counts: dict[str, int]) -> tuple[str, str]:
     return ("passed" if code == 0 else "failed"), ", ".join(parts) or "No tests ran."
 
 
-def _record_results(ws: Workspace, cases: list[CaseResult]) -> None:
-    # Each security test in the state keeps its result from this run. The event log keeps every run's results.
+def test_functions(folder: Path) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    """The test functions under tests/ as (file, name), without running anything; and each test file that can't be
+    read, with why."""
+    functions, unreadable = [], {}
+    for path in sorted((folder / "tests").rglob("test_*.py")):
+        file = path.relative_to(folder).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError, OSError) as error:
+            unreadable[file] = f"{type(error).__name__} in {file}: {error}"
+            continue
+        classes = [node.body for node in tree.body if isinstance(node, ast.ClassDef) and node.name.startswith("Test")]
+        for node in [*tree.body, *(item for body in classes for item in body)]:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                functions.append((file, node.name))
+    return functions, unreadable
+
+
+def _record_results(ws: Workspace, cases: list[CaseResult], failure: str | None) -> None:
+    # Each unit test in the state keeps the outcome of this run, replacing the one before. The event log keeps
+    # every run's results.
     state = state_service.load(ws)
-    for test in state.tests:
-        results = [case for case in cases if case.file == test.path]
-        passed = sum(case.outcome == "passed" for case in results)
-        test.passed = passed == len(results) if results else None
-        test.result = f"{passed} of {len(results)} tests passed" if results else "No result in the latest run"
+    state_service.update_tests(state, *test_functions(workspace.folder(ws)), cases=cases, failure=failure)
     state_service.save(ws, state)
 
 
-def run_tests(db: Session, ws: Workspace) -> dict:
-    # Clicking Run tests is the human's approval to run them.
+Trigger = Literal["button", "review", "chat", "finish"]
+
+
+def run_tests(db: Session, ws: Workspace, trigger: Trigger = "button") -> dict:
+    # Clicking Run tests is the human's approval to run them. The Test/Verifier also runs them on a review and when
+    # the part is finished; in single mode those runs are only logged, not shown.
     snapshot = workspace.snapshot(ws, "tests")
     code, cases, output = _pytest(workspace.folder(ws).resolve())
     counts = {outcome: sum(case.outcome == outcome for case in cases) for outcome in get_args(Outcome)}
@@ -140,14 +160,16 @@ def run_tests(db: Session, ws: Workspace) -> dict:
 
     if ws.mode == "team":
         db.refresh(ws)  # the state may have changed while the tests ran
-        _record_results(ws, cases)
+        _record_results(ws, cases, message if not cases and status in ("error", "timed_out") else None)
     log_event(
         db,
         ws.participant_code,
         "tests_run",
+        actor="human" if trigger == "button" else "verifier" if ws.mode == "team" else "system",
         mode=ws.mode,
         detail={
             "status": status,
+            "trigger": trigger,
             "counts": counts,
             "snapshot": snapshot.name,
             "tests": [{"file": c.file, "name": c.name, "outcome": c.outcome} for c in cases],

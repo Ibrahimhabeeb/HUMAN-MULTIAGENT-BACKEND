@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from config import get_settings
 from models import Event
-from services import approvals, runner, study
+from services import runner
 
 VULNERABILITY = {"description": "Query built from user input", "severity": "High", "file": "app/auth.py"}
 PASSING = "def test_ok():\n    assert True\n"
@@ -66,24 +66,48 @@ def test_slow_tests_are_stopped(client, single, monkeypatch):
     assert result["status"] == "timed_out"
 
 
-def test_team_mode_keeps_each_security_tests_latest_result(client, db, team):
-    client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
-    test = {"path": "tests/test_security_login.py", "content": PASSING, "vulnerability_ids": ["V1"]}
-    approval = approvals.request_approval(db, study.editable_workspace(db), "verifier", "propose_test", test)
-    client.post(f"/approvals/{approval.id}/decide", json={"decision": "approve"})
+def unit_tests(client):
+    return {t["name"]: (t["id"], t["status"], t["message"]) for t in client.get("/workspace/state").json()["tests"]}
 
-    def latest():
-        (security_test,) = client.get("/workspace/state").json()["tests"]
-        return security_test["vulnerability_ids"], security_test["passed"], security_test["result"]
 
+def test_team_mode_keeps_each_unit_tests_latest_result(client, db, team):
+    functional = ["test_registered_user_can_log_in", "test_wrong_password_is_refused", "test_username_must_be_unique"]
+    before = unit_tests(client)
+    assert {name: status for name, (_, status, _) in before.items()} == dict.fromkeys(functional, "open")
+
+    run_tests(client)  # the starter's endpoints answer 501, so every test fails
+    after = unit_tests(client)
+    assert {name: (test_id, status) for name, (test_id, status, _) in after.items()} == {
+        name: (before[name][0], "failed") for name in functional  # same ids: the run replaced each result
+    }
+    assert "501" in after["test_wrong_password_is_refused"][2]
+    run = db.query(Event).filter(Event.type == "tests_run").one()
+    assert (run.actor, run.detail["trigger"]) == ("human", "button")
+
+    write(client, "tests/test_extra.py", "def test_ok():\n    assert False\n")  # the developer's own tests count too
     run_tests(client)
-    assert latest() == (["V1"], True, "1 of 1 tests passed")
-    write(client, "tests/test_security_login.py", "def test_ok():\n    assert False\n")
+    assert unit_tests(client)["test_ok"][1] == "failed"
+    write(client, "tests/test_extra.py", PASSING)
     run_tests(client)
-    assert latest() == (["V1"], False, "0 of 1 tests passed")
-    client.delete("/workspace/files/tests/test_security_login.py")
+    assert unit_tests(client)["test_ok"][1:] == ("passed", None)
+
+    write(client, "app/auth.py", "import nonexistent_workspace_dependency\n")  # test_functional.py can't run at all
     run_tests(client)
-    assert latest() == (["V1"], None, "No result in the latest run")
+    latest = unit_tests(client)
+    assert latest["test_wrong_password_is_refused"][1:] == (
+        "failed", "ModuleNotFoundError in app/auth.py:1: No module named 'nonexistent_workspace_dependency'",
+    )
+    assert latest["test_ok"][1] == "open"  # pytest runs nothing when a file can't be collected
+    client.delete("/workspace/files/tests/test_extra.py")
+    run_tests(client)
+    assert "test_ok" not in unit_tests(client)
+
+
+def test_a_test_file_that_cannot_be_read_keeps_its_tests_as_failed(client, team):
+    write(client, "tests/test_functional.py", "def test_x(:\n")
+    run_tests(client)
+    statuses = {name: status for name, (_, status, _) in unit_tests(client).items()}
+    assert set(statuses.values()) == {"failed"} and len(statuses) == 3
 
 
 def test_a_finished_part_cannot_run_tests(client, single):

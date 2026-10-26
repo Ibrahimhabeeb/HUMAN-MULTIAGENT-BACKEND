@@ -128,9 +128,11 @@ def test_questionnaire_opens_when_both_parts_are_done(client, team):
     ]
 
 
-def test_done_saves_a_snapshot(client, team):
+def test_done_runs_the_unit_tests_then_saves_a_snapshot(client, db, team):
     client.post("/study/done")
-    assert (Path(get_settings().snapshots_dir) / "P01_A_team" / "01_done" / "app" / "auth.py").is_file()
+    (run,) = db.query(Event).filter(Event.type == "tests_run").all()
+    assert (run.actor, run.detail["trigger"], run.detail["snapshot"]) == ("verifier", "finish", "01_tests")
+    assert (Path(get_settings().snapshots_dir) / "P01_A_team" / "02_done" / "app" / "auth.py").is_file()
 
 
 def test_done_twice_is_refused(client, team):

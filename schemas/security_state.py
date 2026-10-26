@@ -1,13 +1,13 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Actor = Literal["human", "system", "assistant", "facilitator", "planner", "threat_modeller", "reviewer", "verifier"]
 Severity = Literal["Low", "Medium", "High", "Critical"]
-RiskStatus = Literal["open", "mitigated", "verified", "accepted"]
-VulnerabilityStatus = Literal["open", "fixed"]
+VulnerabilityStatus = Literal["accepted", "rejected"]  # the developer's decision on the finding
 MitigationStatus = Literal["planned", "implemented"]
+UnitTestStatus = Literal["open", "passed", "failed"]  # open: not run yet
 
 Category = Literal["assumptions", "risks", "vulnerabilities", "mitigations", "tests"]
 HumanCategory = Literal["assumptions", "risks", "vulnerabilities", "mitigations"]  # the ones the human edits directly
@@ -66,25 +66,30 @@ class Assumption(StateItem, AssumptionCreate):
 
 
 class Risk(StateItem, RiskCreate):
-    status: RiskStatus = "open"
-    rationale: str | None = Field(default=None, max_length=1000)  # why the human accepted the risk instead of fixing it
+    # A concern to keep in view, so it has no status. (Older states stored one; it is ignored.)
+    pass
 
 
 class Vulnerability(StateItem, VulnerabilityCreate):
-    status: VulnerabilityStatus = "open"
+    status: VulnerabilityStatus = "accepted"  # a rejected finding stays listed, so it isn't raised again
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _older_statuses(cls, value: str) -> str:
+        return "accepted" if value in ("open", "fixed") else value  # saved before accepted/rejected
 
 
 class Mitigation(StateItem, MitigationCreate):
-    status: MitigationStatus = "planned"
+    status: MitigationStatus = "planned"  # implemented once the developer's code contains the fix
 
 
-class SecurityTest(StateItem):
-    # An approved test file from the Test/Verifier, the vulnerabilities it tests, and its result in the latest
-    # Run tests. Every run's results are also in the event log.
-    path: str
-    vulnerability_ids: list[str] = []
-    passed: bool | None = None  # None until it has been run
-    result: str | None = None  # e.g. "2 of 3 tests passed"
+class UnitTest(StateItem):
+    # One test function in the task's tests/ folder, with the outcome of the most recent run, which replaces the
+    # one before. Every run's results are also in the event log.
+    file: str  # e.g. "tests/test_functional.py"
+    name: str  # e.g. "test_wrong_password_is_refused"
+    status: UnitTestStatus = "open"
+    message: str | None = None  # why it failed in the most recent run
 
 
 class SecurityState(BaseModel):
@@ -93,4 +98,10 @@ class SecurityState(BaseModel):
     risks: list[Risk] = []
     vulnerabilities: list[Vulnerability] = []
     mitigations: list[Mitigation] = []
-    tests: list[SecurityTest] = []
+    tests: list[UnitTest] = []
+
+    @field_validator("tests", mode="before")
+    @classmethod
+    def _drop_older_tests(cls, value: list) -> list:
+        # Older states listed test files the Test/Verifier wrote, not test functions; those aren't tracked any more.
+        return [test for test in value or [] if not isinstance(test, dict) or "name" in test]

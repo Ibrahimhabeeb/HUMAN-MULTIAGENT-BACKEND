@@ -5,7 +5,7 @@ from models import ConsentRecord, Participant, StudySession, SurveyResponse, Wor
 from models.common import as_utc, utc_now
 from schemas.security_state import SecurityState
 from schemas.study import Mode, Screen, TaskId
-from services import content, sessions, workspace
+from services import content, runner, sessions, state_service, workspace
 from services.errors import ConflictError
 from services.events import log_event
 
@@ -50,6 +50,10 @@ def _open_mode(db: Session, participant: Participant, mode: Mode, task_id: TaskI
     db.add(ws)
     db.flush()
     workspace.create_from_starter(ws)
+    if mode == "team":  # the task's unit tests are listed from the start, open until they have run
+        state = state_service.load(ws)
+        state_service.update_tests(state, *runner.test_functions(workspace.folder(ws)))
+        state_service.save(ws, state)
     log_event(db, participant.code, "part_started", mode=mode, detail={"part": ws.part, "task_id": ws.task_id})
     return ws
 
@@ -85,7 +89,10 @@ def editable_workspace(db: Session) -> Workspace:
 
 
 def done(db: Session) -> None:
-    _mark_done(db, editable_workspace(db))
+    ws = editable_workspace(db)
+    # The Test/Verifier runs the unit tests on the final code. In single mode the results are only logged.
+    runner.run_tests(db, ws, trigger="finish")
+    _mark_done(db, ws)
 
 
 # ---- which screen to show ---------------------------------------------------------------------

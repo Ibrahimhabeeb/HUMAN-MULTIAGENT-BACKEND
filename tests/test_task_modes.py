@@ -38,7 +38,9 @@ def test_chosen_task_has_two_independent_mode_attempts(client, db, enrol, task_i
         assert client.get("/workspace/notes").json()["text"] == ""
     else:
         state = client.get("/workspace/state").json()
-        assert state["assumptions"] == [] and state["vulnerabilities"] == [] and state["tests"] == []
+        assert state["assumptions"] == [] and state["vulnerabilities"] == []
+        # The task's own unit tests are listed from the start, open; part 1's extra test file isn't here.
+        assert {(t["file"], t["status"]) for t in state["tests"]} == {("tests/test_functional.py", "open")}
     client.put(f"/workspace/files/{source}", json={"content": "# second attempt"})
     rows = db.query(Workspace).order_by(Workspace.part).all()
     assert workspace.folder(rows[0]) != workspace.folder(rows[1])
@@ -53,8 +55,9 @@ def test_chosen_task_has_two_independent_mode_attempts(client, db, enrol, task_i
     assert done["screen"] == "questionnaire"
     assert [(part["mode"], part["task_id"]) for part in done["parts"]] == [(first_mode, task_id), (second_mode, task_id)]
     snapshot_root = Path(get_settings().snapshots_dir)
-    assert (snapshot_root / f"P01_{task_id}_{first_mode}" / "01_done" / source).read_text(encoding="utf-8") == "# first attempt"
-    assert (snapshot_root / f"P01_{task_id}_{second_mode}" / "01_done" / source).read_text(encoding="utf-8") == "# second attempt"
+    # Finishing runs the unit tests first (snapshot 01_tests), then saves the final code.
+    assert (snapshot_root / f"P01_{task_id}_{first_mode}" / "02_done" / source).read_text(encoding="utf-8") == "# first attempt"
+    assert (snapshot_root / f"P01_{task_id}_{second_mode}" / "02_done" / source).read_text(encoding="utf-8") == "# second attempt"
 
 
 @pytest.mark.parametrize("task_id", ["A", "B", "C", "D", "E"])
@@ -93,7 +96,7 @@ def test_legacy_first_attempt_remains_readable_and_does_not_collide_with_the_new
     assert workspace.folder(second_ws).name == "P01_A_single"
     assert "def login" in workspace.read_file(second_ws, "app/auth.py")["content"]
     assert (legacy / "app/auth.py").read_text(encoding="utf-8") == "# legacy participant code"
-    assert (Path(get_settings().snapshots_dir) / "P01_A" / "01_done" / "app/auth.py").is_file()
+    assert (Path(get_settings().snapshots_dir) / "P01_A" / "02_done" / "app/auth.py").is_file()
     missing = workspace.folder(second_ws).with_name("missing-second-attempt")
     workspace.folder(second_ws).rename(missing)
     assert workspace.folder(second_ws).name == "P01_A_single"  # never read the first mode as a fallback

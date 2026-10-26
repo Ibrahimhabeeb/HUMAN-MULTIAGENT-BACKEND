@@ -1,9 +1,6 @@
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
-from config import get_settings
 from models import Approval, Event
 from services import approvals, study
 from services.errors import ConflictError
@@ -11,7 +8,7 @@ from services.errors import ConflictError
 ASSUMPTION = {"text": "Only the login form takes input from users"}
 RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
 VULNERABILITY = {"description": "f-string SQL", "severity": "High", "file": "app/auth.py", "line": 5}
-TEST_FILE = {"path": "tests/test_security.py", "content": "def test_x():\n    assert True\n", "vulnerability_ids": ["V1"]}
+TEST_FILE = {"path": "tests/test_security.py", "content": "def test_x():\n    assert True\n"}
 FIX = {
     "vulnerability": "V1",
     "file": "app/auth.py",
@@ -144,40 +141,31 @@ def test_a_fix_cannot_be_approved_after_its_vulnerability_is_deleted(client, tea
     assert state(client)["mitigations"] == []
 
 
-def test_approved_test_file_is_added_and_linked_to_its_vulnerabilities(client, db, team, propose):
+def test_a_vulnerability_is_kept_as_accepted_or_rejected(client, db, team, propose):
     decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
-    approval_id = propose("verifier", "propose_test", TEST_FILE)
-    assert not Path(get_settings().workspaces_dir, "P01_A_team", "tests", "test_security.py").exists()
-
-    decide(client, approval_id, "approve")
-    assert client.get("/workspace/files/tests/test_security.py").json()["content"] == TEST_FILE["content"]
-    test = state(client)["tests"][0]
-    assert (test["path"], test["vulnerability_ids"], test["approval_id"]) == ("tests/test_security.py", ["V1"], approval_id)
-    assert (test["source"], test["passed"], test["result"]) == ("verifier", None, None)  # not run yet
-    created = db.query(Event).filter(Event.type == "file_created").one()
-    assert created.actor == "system"
+    rejected = decide(client, propose("reviewer", "propose_vulnerability", {**VULNERABILITY, "line": 9}), "reject").json()
+    assert [(v["id"], v["line"], v["status"]) for v in state(client)["vulnerabilities"]] == [
+        ("V1", 5, "accepted"), ("V2", 9, "rejected"),
+    ]
+    assert (rejected["status"], rejected["result"]) == ("rejected", {"item_id": "V2"})
+    jobs = [m for m in client.get("/chat").json()["team"] if m["data"].get("kind") == "vulnerability_follow_up"]
+    assert [job["data"]["vulnerability_id"] for job in jobs] == ["V1"]  # only an accepted one gets a fix
 
 
-def test_deleting_a_vulnerability_removes_it_from_the_tests_for_it(client, team, propose):
-    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
-    decide(client, propose("verifier", "propose_test", TEST_FILE), "approve")
-    assert client.delete("/workspace/state/vulnerabilities/V1").status_code == 204
-    assert state(client)["tests"][0]["vulnerability_ids"] == []
-
-
-def test_a_test_for_an_unknown_vulnerability_is_refused_and_writes_nothing(client, team, propose):
-    approval_id = propose("verifier", "propose_test", TEST_FILE)
-    assert decide(client, approval_id, "approve").status_code == 404
-    assert client.get(f"/approvals/{approval_id}").json()["status"] == "pending"
-    assert client.get("/workspace/files/tests/test_security.py").status_code == 404
-
-
-def test_mark_resolved_updates_the_vulnerability_or_risk(client, team, propose):
-    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+def test_risks_have_no_status(client, team, propose):
     propose("threat_modeller", "propose_risk", RISK)  # a suggested risk is in the state straight away
-    decide(client, propose("reviewer", "mark_resolved", {"item_id": "V1", "reason": "Now uses placeholders"}), "approve")
-    decide(client, propose("reviewer", "mark_resolved", {"item_id": "R1", "reason": "Every query uses them"}), "approve")
-    assert (state(client)["vulnerabilities"][0]["status"], state(client)["risks"][0]["status"]) == ("fixed", "mitigated")
+    (risk,) = state(client)["risks"]
+    assert "status" not in risk and "rationale" not in risk
+
+
+def test_mark_resolved_marks_a_mitigation_implemented(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    decide(client, propose("reviewer", "suggest_fix", FIX), "approve")
+    assert state(client)["mitigations"][0]["status"] == "planned"
+    decide(client, propose("reviewer", "mark_resolved", {"item_id": "M1", "reason": "The query now uses placeholders"}), "approve")
+    assert state(client)["mitigations"][0]["status"] == "implemented"
+    with pytest.raises(ValidationError):  # only a mitigation can be marked
+        propose("reviewer", "mark_resolved", {"item_id": "V1", "reason": "Now uses placeholders"})
 
 
 def test_invalid_proposals_are_refused_when_requested(team, propose):

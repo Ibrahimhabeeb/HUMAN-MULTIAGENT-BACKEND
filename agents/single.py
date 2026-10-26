@@ -4,7 +4,7 @@ from agents.context import build_context, code_listing
 from agents.roles import ASSISTANT_PROMPT, REVIEW_MESSAGE
 from agents.turns import agent_turn, agent_turn_stream, log_message_sent
 from models import Workspace
-from services import chat, workspace
+from services import chat, runner, workspace
 from services.events import log_event
 
 
@@ -22,7 +22,9 @@ def send_stream(db: Session, ws: Workspace, thread: str, content: str):
 
 
 def review(db: Session, ws: Workspace) -> dict:
-    # The same neutral message and code listing the team's Reviewer gets.
+    # The same neutral message and code listing the team's Reviewer gets. The unit tests run too, as the team's
+    # Test/Verifier runs them, but here the results are only logged: running tests is a team feature.
+    runner.run_tests(db, ws, trigger="review")
     ctx = build_context(ws)
     snapshot = workspace.snapshot(ws, "review")
     data = {"snapshot": snapshot.name}
