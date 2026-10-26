@@ -89,14 +89,24 @@ def test_numeric_answers_and_an_explicit_not_applicable_answer_are_saved(client,
     assert saved[("team", "roles_clear")] == "Not applicable"
 
 
-def test_v12_questionnaire_has_the_security_specific_17_question_structure():
+def test_v13_questionnaire_uses_text_scales_and_has_the_shared_state_and_open_feedback_questions():
     form = questionnaire.load()
     questions = [question for section in form.sections for question in section.questions]
-    assert form.version == "v1.2"
-    assert [question.number for question in questions] == list(range(1, 18))
+    assert form.version == "v1.3"
+    assert [question.number for question in questions] == list(range(1, 22))
+    assert questions[0].text == "How confident are you that the code you completed with the {mode} meets the task's functional requirements?"
+    assert questions[1].text == "How confident are you that the code you completed with the {mode} meets the task's security requirements?"
+    assert questions[0].options == questions[1].options == [
+        "Not at all confident", "Slightly confident", "Moderately confident", "Very confident", "Extremely confident",
+    ]
     assert questions[2].key == "vulnerability_risk_trust"
     assert questions[3].key == "mitigation_trust"
-    assert questions[7].type == "number" and questions[7].scale.min == 0 and questions[7].scale.max == 100
+    assert questions[7].options == ["None", "A little", "A moderate amount", "A great deal"]
     assert questions[8].key == "security_advice_effort"
-    assert all(question.allow_not_applicable for question in questions[10:13])
-    assert not any(question.allow_not_applicable for question in questions[:10])
+    assert [question.key for question in questions[10:16]] == [
+        "specialist_role_clarity", "state_unresolved_visibility", "state_evidence_traceability",
+        "state_status_tracking", "state_mitigation_linkage", "state_test_visibility",
+    ]
+    assert all("Not applicable" in question.options for question in questions[10:16])
+    assert not any(question.type == "number" for question in questions)
+    assert questions[-1].key == "open_feedback" and questions[-1].type == "text"
