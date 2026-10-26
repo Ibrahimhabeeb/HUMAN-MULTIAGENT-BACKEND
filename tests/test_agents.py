@@ -1,3 +1,4 @@
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -40,6 +41,12 @@ class FakeModel:
         script = self.scripts.get(role)
         return script(tools) if script else f"{role} reply"
 
+    def run_agent_stream(self, system_prompt, tools, messages):
+        reply = self.run_agent(system_prompt, tools, messages)
+        midpoint = max(1, len(reply) // 2)
+        yield reply[:midpoint]
+        yield reply[midpoint:]
+
     def route(self, system_prompt, messages):
         self.calls.append({"role": "facilitator", "prompt": system_prompt, "messages": [m.content for m in messages]})
         agent, reason = self.route_to
@@ -56,6 +63,7 @@ class FakeModel:
 def model(monkeypatch):
     fake = FakeModel()
     monkeypatch.setattr(runtime, "run_agent", fake.run_agent)
+    monkeypatch.setattr(runtime, "run_agent_stream", fake.run_agent_stream)
     monkeypatch.setattr(runtime, "route", fake.route)
     return fake
 
@@ -66,6 +74,12 @@ def say(client, content, thread="team"):
 
 def next_reply(client):
     return client.post("/chat/next")
+
+
+def stream_say(client, content, thread="team"):
+    response = client.post(f"/chat/{thread}/stream", json={"content": content})
+    assert response.status_code == 200
+    return [json.loads(line) for line in response.text.splitlines()]
 
 
 def decide(client, approval_id, decision="approve"):
@@ -90,6 +104,39 @@ def test_messages_must_have_content(client, team, model):
     assert say(client, "   ").status_code == 422
     assert say(client, "x" * 4001).status_code == 422
     assert model.calls == []
+
+
+def test_team_chat_streams_the_planner_then_the_threat_modeller_and_persists_only_completed_messages(client, team, model):
+    events = stream_say(client, "Please guide me through the task")
+    assert [event["type"] for event in events] == [
+        "message", "agent_start", "delta", "delta", "agent_complete",
+        "agent_start", "delta", "delta", "agent_complete", "done",
+    ]
+    assert [event["agent"] for event in events if event["type"] == "agent_start"] == ["planner", "threat_modeller"]
+    assert "".join(event["content"] for event in events if event["type"] == "delta" and event["agent"] == "planner") == "planner reply"
+    assert "".join(event["content"] for event in events if event["type"] == "delta" and event["agent"] == "threat_modeller") == "threat_modeller reply"
+    assert [message["content"] for message in client.get("/chat/team").json()] == [
+        "Please guide me through the task", "planner reply", "threat_modeller reply",
+    ]
+
+
+def test_threat_modeller_stores_one_workspace_scoped_illustrative_risk_example(client, team, model):
+    model.scripts["threat_modeller"] = lambda tools: """Untrusted input reaches this function.
+<risk-example path="app/auth.py">
+```python
+def login(username: str, password: str):
+    return conn.execute(f\"SELECT * FROM users WHERE username = '{username}'\")
+```
+</risk-example>"""
+
+    result = say(client, "Help me understand the task").json()
+    threat = result["messages"][-1]
+    assert threat["content"] == "Untrusted input reaches this function."
+    assert threat["data"]["threat_example"] == {
+        "path": "app/auth.py",
+        "language": "python",
+        "code": "def login(username: str, password: str):\n    return conn.execute(f\"SELECT * FROM users WHERE username = '{username}'\")",
+    }
 
 
 @pytest.mark.parametrize("task_id, source", [

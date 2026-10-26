@@ -1,4 +1,5 @@
 import time
+from collections.abc import Iterator
 
 from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import Session
@@ -21,6 +22,7 @@ from agents.roles import (
     team_prompt,
 )
 from agents.runtime import RouteDecision
+from agents.threat_examples import extract as extract_threat_example
 from agents.tools import make_tools
 from agents.turns import log_message_sent, model_call
 from models import Message, Workspace
@@ -177,6 +179,10 @@ def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> di
     started = time.monotonic()
     with model_call(db, ws, agent):
         reply = runtime.run_agent(team_prompt(agent), tools, prompt)
+    if agent == "threat_modeller":
+        reply, example = extract_threat_example(reply, set(ctx.files))
+        if example:
+            reply_data["threat_example"] = example
 
     saved = chat.save_proposals(db, ws, ctx.proposals)
     message = chat.add_message(db, ws, THREAD, "agent", reply, {**reply_data, "approval_ids": [a.id for a in saved]})
@@ -190,6 +196,50 @@ def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> di
     )
     db.commit()
     return {"messages": [message], "approvals": saved, "next": next_agent(db, ws)}
+
+
+def _answer_stream(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> Iterator[dict]:
+    """Run one team member, yielding deltas before its durable completed reply."""
+    messages = chat.thread_messages(db, ws, THREAD)
+    replies = [m for m in messages if m.data.get("reply_to") == asked.id and m.role == "agent"]
+    reply_data = {"agent": agent, "reply_to": asked.id}
+    ctx = build_context(ws)
+    ctx.earlier = earlier_proposals(db, ws)
+
+    if agent == "verifier" and not (ctx.state and ctx.state.vulnerabilities):
+        notice = chat.add_message(db, ws, THREAD, "system", NO_VULNERABILITIES_NOTICE, reply_data)
+        db.commit()
+        yield {"type": "message", "message": notice}
+        return
+
+    history = chat.as_langchain([m for m in messages if m.id < asked.id], me=agent)
+    prompt = [*history, HumanMessage(_input(agent, asked, replies, ctx))]
+    tools = make_tools(ctx, agent)
+    started = time.monotonic()
+    chunks: list[str] = []
+    yield {"type": "agent_start", "agent": agent}
+    with model_call(db, ws, agent):
+        for delta in runtime.run_agent_stream(team_prompt(agent), tools, prompt):
+            chunks.append(delta)
+            yield {"type": "delta", "agent": agent, "content": delta}
+    reply = "".join(chunks)
+    if agent == "threat_modeller":
+        reply, example = extract_threat_example(reply, set(ctx.files))
+        if example:
+            reply_data["threat_example"] = example
+
+    saved = chat.save_proposals(db, ws, ctx.proposals)
+    message = chat.add_message(db, ws, THREAD, "agent", reply, {**reply_data, "approval_ids": [a.id for a in saved]})
+    log_event(
+        db,
+        ws.participant_code,
+        "agent_replied",
+        actor=agent,
+        mode=ws.mode,
+        detail={"seconds": round(time.monotonic() - started, 1), "proposals": len(saved)},
+    )
+    db.commit()
+    yield {"type": "agent_complete", "agent": agent, "message": message, "approvals": saved}
 
 
 def _route(db: Session, ws: Workspace, messages: list[Message], content: str) -> RouteDecision:
@@ -235,6 +285,25 @@ def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
         replies.extend(result["messages"])
         proposals.extend(result["approvals"])
     return {"messages": replies, "approvals": proposals, "next": next_agent(db, ws)}
+
+
+def send_stream(db: Session, ws: Workspace, thread: str, content: str) -> Iterator[dict]:
+    """Save the developer message, then stream each automatically routed team reply."""
+    chat.require_thread(ws, thread)
+    log_message_sent(db, ws, thread, content)
+    messages = chat.thread_messages(db, ws, THREAD)
+    if any(m.role == "human" for m in messages):
+        decision = _route(db, ws, messages, content)
+        data = {"route": [decision.agent], "reason": decision.reason}
+    else:
+        data = {"route": list(FIRST_ROUTE)}
+
+    asked = chat.add_message(db, ws, THREAD, "human", content, data)
+    db.commit()
+    yield {"type": "message", "message": asked}
+    for agent in data["route"]:
+        yield from _answer_stream(db, ws, asked, agent)
+    yield {"type": "done", "next": next_agent(db, ws)}
 
 
 def review(db: Session, ws: Workspace) -> dict:

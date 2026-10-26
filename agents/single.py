@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 
 from agents.context import build_context, code_listing
 from agents.roles import ASSISTANT_PROMPT, REVIEW_MESSAGE
-from agents.turns import agent_turn, log_message_sent
+from agents.turns import agent_turn, agent_turn_stream, log_message_sent
 from models import Workspace
 from services import chat, workspace
 from services.events import log_event
@@ -12,6 +12,13 @@ def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
     chat.require_thread(ws, thread)
     log_message_sent(db, ws, thread, content)
     return agent_turn(db, ws, "assistant", ASSISTANT_PROMPT, build_context(ws), content)
+
+
+def send_stream(db: Session, ws: Workspace, thread: str, content: str):
+    chat.require_thread(ws, thread)
+    log_message_sent(db, ws, thread, content)
+    yield from agent_turn_stream(db, ws, "assistant", ASSISTANT_PROMPT, build_context(ws), content)
+    yield {"type": "done", "next": None}
 
 
 def review(db: Session, ws: Workspace) -> dict:
