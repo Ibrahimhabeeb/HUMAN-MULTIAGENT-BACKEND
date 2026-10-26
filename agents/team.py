@@ -27,7 +27,7 @@ from agents.tools import make_tools
 from agents.turns import log_message_sent, model_call
 from models import Message, Workspace
 from schemas.security_state import SecurityState
-from services import chat, workspace
+from services import chat, runner, workspace
 from services.errors import ConflictError
 from services.events import log_event
 
@@ -35,44 +35,50 @@ from services.events import log_event
 # The initial plan and threat analysis run sequentially in one request, with no human handoff.
 # Each reply is saved separately, so next_reply can recover an interrupted route without repeating saved work.
 THREAD = "team"
-NO_VULNERABILITIES_NOTICE = (
-    "The Test/Verifier writes tests against approved vulnerabilities. There are none yet, so it had nothing to test."
-)
 
 
 def _risk_list(state: SecurityState) -> str:
     lines = []
     for risk in state.risks:
-        details = ", ".join(part for part in (risk.severity, risk.cwe, risk.status) if part)
+        details = ", ".join(part for part in (risk.severity, risk.cwe) if part)
         lines.append(f"- {risk.id} ({details}): {risk.description}")
     return "\n".join(lines)
 
 
 def _vulnerability_list(state: SecurityState) -> str:
-    tested = {found: test.path for test in state.tests for found in test.vulnerability_ids}
-    mitigations: dict[str, list[str]] = {}
-    for m in state.mitigations:
-        if m.vulnerability_id:
-            mitigations.setdefault(m.vulnerability_id, []).append(m.id)
+    # Says plainly where each finding stands, so a planned fix isn't mistaken for code that is already fixed.
     lines = []
     for v in state.vulnerabilities:
         where = f"{v.file}:{v.line}" if v.file and v.line else v.file
-        details = ", ".join(part for part in (v.severity, v.cwe, where, v.status) if part)
-        notes = []
-        if v.id in mitigations:
-            notes.append(f"mitigation {', '.join(mitigations[v.id])}")
-        elif v.status == "open":
-            notes.append("no mitigation yet")
-        if v.id in tested:
-            notes.append(f"tested in {tested[v.id]}")
-        lines.append(f"- {v.id} ({details}){''.join(f' [{note}]' for note in notes)}: {v.description}")
+        details = ", ".join(part for part in (v.severity, v.cwe, where) if part)
+        fixes = [
+            f"fix {m.id} implemented" if m.status == "implemented" else f"fix {m.id} approved, not yet implemented"
+            for m in state.mitigations
+            if m.vulnerability_id == v.id
+        ]
+        notes = "rejected by the developer" if v.status == "rejected" else "; ".join(["accepted", *fixes]) if fixes else (
+            "accepted, no fix yet"
+        )
+        lines.append(f"- {v.id} ({details}) [{notes}]: {v.description}")
     return "\n".join(lines)
 
 
+def _test_list(state: SecurityState) -> str:
+    results = {"open": "not run yet", "passed": "passed", "failed": "failed"}
+    return "\n".join(
+        f"- {t.id} {t.name} ({t.file}): {results[t.status]}" + (f": {t.message}" if t.status == "failed" and t.message else "")
+        for t in state.tests
+    )
+
+
 def _in_the_state(state: SecurityState | None) -> str:
-    # Approved findings and their fixes/tests, so the Code Reviewer can avoid duplicates and re-check them.
+    # The findings with their fixes, and the unit tests' latest results, so the Code Reviewer can avoid duplicates
+    # and re-check fixes against the code.
     state = state or SecurityState()
-    return f"The approved vulnerabilities:\n{_vulnerability_list(state) or '(none yet)'}"
+    return (
+        f"The vulnerabilities in the security state:\n{_vulnerability_list(state) or '(none yet)'}\n\n"
+        f"The unit tests' latest results (from the Test/Verifier):\n{_test_list(state) or '(no unit tests)'}"
+    )
 
 
 def _describe(earlier: Earlier) -> str | None:
@@ -89,9 +95,9 @@ def _describe(earlier: Earlier) -> str | None:
         case "suggest_fix":
             return f"fix for {p['vulnerability']}: {p['why']}"
         case "mark_resolved":
-            return f"mark {p['item_id']} as resolved: {p['reason']}"
+            return f"mark {p['item_id']} as implemented: {p['reason']}"
         case "propose_test":
-            return f"test file {p['path']} for {', '.join(p.get('vulnerability_ids') or []) or 'no vulnerability'}"
+            return f"test file {p['path']}"
     return None  # an action type that no longer exists
 
 
@@ -117,27 +123,16 @@ def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
     if asked is None:
         return None
     answered = {m.data.get("agent") for m in messages if m.data.get("reply_to") == asked.id}
-    agent = next((
-        a for a in asked.data.get("route", [])
-        if a not in answered and not ("snapshot" in asked.data and a == "verifier")
-    ), None)
+    agent = next((a for a in asked.data.get("route", []) if a not in answered), None)
     return (asked, agent) if agent else None
 
 
 def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: AgentContext) -> str:
     # What the agent is given: the developer's message and what the others already answered; the Code Reviewer
-    # always gets the current code and what is in the state, the Test/Verifier the approved vulnerabilities.
+    # always gets the current code and what is in the state, including the unit tests' latest results.
     # Every agent also sees its own proposals that are still waiting or were rejected.
-    review = "snapshot" in asked.data
-    if agent == "verifier":
-        vulnerabilities = _vulnerability_list(ctx.state or SecurityState()) or "(none yet)"
-        if review:
-            text = "The developer asked for a review. Write security tests against the approved vulnerabilities:\n"
-            text += vulnerabilities
-        else:
-            text = f"{asked.content}\n\nThe approved vulnerabilities:\n{vulnerabilities}"
-    elif agent == "reviewer" and review:
-        text = f"{REVIEW_MESSAGE}\n\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
+    if agent == "reviewer" and "snapshot" in asked.data:  # a review: the button's message, or the developer's own
+        text = f"{asked.content}\n\n{code_listing(ctx.files)}\n\n{_in_the_state(ctx.state)}"
     else:
         text = asked.content
         for reply in replies:
@@ -167,11 +162,6 @@ def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> di
     reply_data = {"agent": agent, "reply_to": asked.id}
     ctx = build_context(ws)
     ctx.earlier = earlier_proposals(db, ws)
-
-    if agent == "verifier" and not (ctx.state and ctx.state.vulnerabilities):
-        notice = chat.add_message(db, ws, THREAD, "system", NO_VULNERABILITIES_NOTICE, reply_data)
-        db.commit()
-        return {"messages": [notice], "approvals": [], "next": next_agent(db, ws)}
 
     history = chat.as_langchain([m for m in messages if m.id < asked.id], me=agent)
     prompt = [*history, HumanMessage(_input(agent, asked, replies, ctx))]
@@ -206,12 +196,6 @@ def _answer_stream(db: Session, ws: Workspace, asked: Message, agent: Specialist
     ctx = build_context(ws)
     ctx.earlier = earlier_proposals(db, ws)
 
-    if agent == "verifier" and not (ctx.state and ctx.state.vulnerabilities):
-        notice = chat.add_message(db, ws, THREAD, "system", NO_VULNERABILITIES_NOTICE, reply_data)
-        db.commit()
-        yield {"type": "message", "message": notice}
-        return
-
     history = chat.as_langchain([m for m in messages if m.id < asked.id], me=agent)
     prompt = [*history, HumanMessage(_input(agent, asked, replies, ctx))]
     tools = make_tools(ctx, agent)
@@ -242,6 +226,34 @@ def _answer_stream(db: Session, ws: Workspace, asked: Message, agent: Specialist
     yield {"type": "agent_complete", "agent": agent, "message": message, "approvals": saved}
 
 
+def _test_report(result: dict) -> str:
+    # What the Test/Verifier says after a run: the summary, then each test that didn't pass.
+    if result["status"] == "no_tests":
+        return "There are no unit tests to run."
+    lines = [f"I ran the unit tests: {result['message'].rstrip('.')}."]
+    problems = [case for case in result["tests"] if case.outcome != "passed"]
+    for case in problems[:10]:
+        why = case.message.strip().splitlines()[0] if case.message and case.message.strip() else ""
+        lines.append(f"- {case.outcome}: `{case.name}` ({case.file})" + (f": {why}" if why else ""))
+    if len(problems) > 10:
+        lines.append(f"- and {len(problems) - 10} more")
+    return "\n".join(lines)
+
+
+def _tests_turn(db: Session, ws: Workspace, asked: Message) -> dict:
+    # The Test/Verifier doesn't call the model: it runs the task's unit tests, which records each test's result in
+    # the security state, and reports them.
+    result = runner.run_tests(db, ws, trigger="review" if "snapshot" in asked.data else "chat")
+    data = {"agent": "verifier", "reply_to": asked.id, "tests": result["counts"]}
+    message = chat.add_message(db, ws, THREAD, "agent", _test_report(result), data)
+    db.commit()
+    return {"messages": [message], "approvals": [], "next": next_agent(db, ws)}
+
+
+def _turn(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> dict:
+    return _tests_turn(db, ws, asked) if agent == "verifier" else _answer(db, ws, asked, agent)
+
+
 def _route(db: Session, ws: Workspace, messages: list[Message], content: str) -> RouteDecision:
     reviewed = any("snapshot" in m.data for m in messages)
     stage = "The code has been reviewed at least once." if reviewed else "The code has not been reviewed yet."
@@ -255,7 +267,7 @@ def _route(db: Session, ws: Workspace, messages: list[Message], content: str) ->
         "message_routed",
         actor="facilitator",
         mode=ws.mode,
-        detail={"agent": decision.agent, "reason": decision.reason},
+        detail={"agent": decision.agent, "reason": decision.reason, "review": decision.review},
     )
     return decision
 
@@ -265,55 +277,65 @@ def next_agent(db: Session, ws: Workspace) -> Specialist | None:
     return waiting[1] if waiting else None
 
 
-def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
-    chat.require_thread(ws, thread)
-    log_message_sent(db, ws, thread, content)
+def _start_review(db: Session, ws: Workspace) -> dict:
+    # The code listing isn't kept in the chat; the snapshot holds exactly what was reviewed.
+    snapshot = workspace.snapshot(ws, "review")
+    log_event(db, ws.participant_code, "ready_for_review", mode=ws.mode, detail={"snapshot": snapshot.name})
+    return {"snapshot": snapshot.name, "route": list(REVIEW_ROUTE)}
+
+
+def _ask(db: Session, ws: Workspace, content: str) -> Message:
+    # Saves the developer's message with its route, before any agent answers, so if one fails the developer can
+    # retry with next_reply. The first message gets the steps, then the threats; asking for a review in chat
+    # starts one, as the button does; otherwise the Facilitator picks the agent.
     messages = chat.thread_messages(db, ws, THREAD)
-    if any(m.role == "human" for m in messages):
+    if not any(m.role == "human" for m in messages):
+        data = {"route": list(FIRST_ROUTE)}
+    else:
         decision = _route(db, ws, messages, content)
         data = {"route": [decision.agent], "reason": decision.reason}
-    else:
-        data = {"route": list(FIRST_ROUTE)}  # telling the team what you want to build: steps, then threats
-
-    # Saved before any agent answers, so if one fails the developer can retry with next_reply.
+        if decision.review:
+            data = {**_start_review(db, ws), "reason": decision.reason}
     asked = chat.add_message(db, ws, THREAD, "human", content, data)
     db.commit()
-    replies = [asked]
-    proposals = []
-    for agent in data["route"]:
-        result = _answer(db, ws, asked, agent)
+    return asked
+
+
+def _run_route(db: Session, ws: Workspace, asked: Message) -> dict:
+    replies, proposals = [], []
+    for agent in asked.data["route"]:
+        result = _turn(db, ws, asked, agent)
         replies.extend(result["messages"])
         proposals.extend(result["approvals"])
     return {"messages": replies, "approvals": proposals, "next": next_agent(db, ws)}
+
+
+def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
+    chat.require_thread(ws, thread)
+    log_message_sent(db, ws, thread, content)
+    asked = _ask(db, ws, content)
+    result = _run_route(db, ws, asked)
+    return {**result, "messages": [asked, *result["messages"]]}
 
 
 def send_stream(db: Session, ws: Workspace, thread: str, content: str) -> Iterator[dict]:
     """Save the developer message, then stream each automatically routed team reply."""
     chat.require_thread(ws, thread)
     log_message_sent(db, ws, thread, content)
-    messages = chat.thread_messages(db, ws, THREAD)
-    if any(m.role == "human" for m in messages):
-        decision = _route(db, ws, messages, content)
-        data = {"route": [decision.agent], "reason": decision.reason}
-    else:
-        data = {"route": list(FIRST_ROUTE)}
-
-    asked = chat.add_message(db, ws, THREAD, "human", content, data)
-    db.commit()
+    asked = _ask(db, ws, content)
     yield {"type": "message", "message": asked}
-    for agent in data["route"]:
-        yield from _answer_stream(db, ws, asked, agent)
+    for agent in asked.data["route"]:
+        if agent == "verifier":
+            yield {"type": "message", "message": _tests_turn(db, ws, asked)["messages"][0]}
+        else:
+            yield from _answer_stream(db, ws, asked, agent)
     yield {"type": "done", "next": next_agent(db, ws)}
 
 
 def review(db: Session, ws: Workspace) -> dict:
-    snapshot = workspace.snapshot(ws, "review")
-    log_event(db, ws.participant_code, "ready_for_review", mode=ws.mode, detail={"snapshot": snapshot.name})
-    data = {"snapshot": snapshot.name, "route": list(REVIEW_ROUTE)}
-    # The code listing isn't kept in the chat; the snapshot holds exactly what was reviewed.
-    asked = chat.add_message(db, ws, THREAD, "human", REVIEW_MESSAGE, data)
+    asked = chat.add_message(db, ws, THREAD, "human", REVIEW_MESSAGE, _start_review(db, ws))
     db.commit()
-    result = _answer(db, ws, asked, "reviewer")
+    result = _run_route(db, ws, asked)
     return {**result, "messages": [asked, *result["messages"]]}
 
 
@@ -323,4 +345,4 @@ def next_reply(db: Session, ws: Workspace) -> dict:
     waiting = _waiting(chat.thread_messages(db, ws, THREAD))
     if waiting is None:
         raise ConflictError("No agent is waiting to answer")
-    return _answer(db, ws, *waiting)
+    return _turn(db, ws, *waiting)

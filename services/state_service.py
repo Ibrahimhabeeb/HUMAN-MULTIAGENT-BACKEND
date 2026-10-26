@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from models import Workspace
+from schemas.runner import CaseResult
 from schemas.security_state import (
     Actor,
     Assumption,
@@ -17,8 +18,9 @@ from schemas.security_state import (
     Risk,
     RiskCreate,
     SecurityState,
-    SecurityTest,
     StateItem,
+    UnitTest,
+    UnitTestStatus,
     Vulnerability,
     VulnerabilityCreate,
 )
@@ -37,7 +39,7 @@ ITEM_CLASS: dict[str, type[StateItem]] = {
     "risks": Risk,
     "vulnerabilities": Vulnerability,
     "mitigations": Mitigation,
-    "tests": SecurityTest,
+    "tests": UnitTest,
 }
 CREATE_SCHEMA: dict[str, type[BaseModel]] = {
     "assumptions": AssumptionCreate,
@@ -167,37 +169,61 @@ def delete_item(state: SecurityState, category: Category, item_id: str) -> None:
             linked += [other.id for other in getattr(state, linking) if getattr(other, field) == item_id]
     if linked:
         raise ConflictError(f"{item_id} is linked to {', '.join(linked)}; delete or change those first")
-    if category == "vulnerabilities":
-        for test in state.tests:  # tests can't be edited by hand, so they just stop listing it
-            if item_id in test.vulnerability_ids:
-                test.vulnerability_ids.remove(item_id)
     getattr(state, category).remove(item)
 
 
-def resolve(state: SecurityState, item_id: str) -> StateItem:
-    if item_id.startswith("V"):
-        return edit_item(state, "vulnerabilities", item_id, {"status": "fixed"})
-    return edit_item(state, "risks", item_id, {"status": "mitigated"})
+def mark_implemented(state: SecurityState, mitigation_id: str) -> StateItem:
+    return edit_item(state, "mitigations", mitigation_id, {"status": "implemented"})
 
 
-def link_test(state: SecurityState, path: str, vulnerability_ids: list[str], approval_id: int | None) -> SecurityTest:
-    for vulnerability_id in vulnerability_ids:
-        _require(state, "vulnerabilities", vulnerability_id)
-    for existing in state.tests:
-        if existing.path == path:  # a re-proposed test file replaces the earlier one, and its old result
-            existing.vulnerability_ids = vulnerability_ids
-            existing.approval_id = approval_id
-            existing.passed = existing.result = None
-            return existing
-    test = SecurityTest(
-        id=_new_id(state, "tests"),
-        source="verifier",
-        approval_id=approval_id,
-        path=path,
-        vulnerability_ids=vulnerability_ids,
-    )
-    state.tests.append(test)
-    return test
+_STATUS_OF: dict[str, UnitTestStatus] = {"passed": "passed", "skipped": "open"}  # a run's outcome; others fail
+_RANK: dict[UnitTestStatus, int] = {"open": 0, "passed": 1, "failed": 2}
+
+
+def _outcomes(
+    cases: list[CaseResult], functions: set[tuple[str, str]]
+) -> tuple[dict[tuple[str, str], tuple[UnitTestStatus, str | None]], dict[str, str]]:
+    # Each test function's outcome (any failing case fails it, e.g. one parametrized case), and the files whose
+    # tests couldn't run at all, with why (e.g. an import error in the code they test).
+    outcomes: dict[tuple[str, str], tuple[UnitTestStatus, str | None]] = {}
+    broken: dict[str, str] = {}
+    for case in cases:
+        key = (case.file, case.name.split("[", 1)[0])
+        if key not in functions:
+            if case.outcome == "error":
+                broken.setdefault(case.file, case.message or "The tests could not be collected")
+            continue
+        status = _STATUS_OF.get(case.outcome, "failed")
+        if key not in outcomes or _RANK[status] > _RANK[outcomes[key][0]]:
+            outcomes[key] = (status, case.message if status == "failed" else None)
+    return outcomes, broken
+
+
+def update_tests(
+    state: SecurityState,
+    functions: list[tuple[str, str]],
+    unreadable: dict[str, str],
+    cases: list[CaseResult] | None = None,
+    failure: str | None = None,
+) -> None:
+    """List every test function in tests/ as (file, name), with the outcome of the latest run replacing the one
+    before. Without a run (cases is None) outcomes stay as they were: open for a new test. A test the run couldn't
+    reach fails with the reason; a test file that can't be read keeps its tests from before."""
+    existing = {(test.file, test.name): test for test in state.tests}
+    outcomes, broken = _outcomes(cases or [], set(functions))
+    tests = []
+    for file, name in functions:
+        test = existing.get((file, name)) or UnitTest(id=_new_id(state, "tests"), source="verifier", file=file, name=name)
+        if cases is not None:
+            reason = broken.get(file) or failure
+            test.status, test.message = outcomes.get((file, name)) or (("failed", reason) if reason else ("open", None))
+        tests.append(test)
+    for (file, _), test in existing.items():
+        if file in unreadable:
+            if cases is not None:
+                test.status, test.message = "failed", unreadable[file]
+            tests.append(test)
+    state.tests = tests
 
 
 # ---- the human edits the state directly (no approval: the human is the authority) -------------

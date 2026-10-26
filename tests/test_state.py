@@ -16,7 +16,8 @@ def add(client, category, body):
 
 def test_human_adds_items_directly_without_approval(client, db, team):
     risk = add(client, "risks", RISK).json()
-    assert (risk["id"], risk["source"], risk["status"], risk["approval_id"]) == ("R1", "human", "open", None)
+    assert (risk["id"], risk["source"], risk["approval_id"]) == ("R1", "human", None)
+    assert "status" not in risk  # a risk is a concern to keep in view, with no status
     assert client.get("/workspace/state").json()["risks"][0]["id"] == "R1"
     added = db.query(Event).filter(Event.type == "state_item_added").one()
     assert added.detail == {"category": "risks", "id": "R1"}
@@ -90,14 +91,15 @@ def test_invalid_items_are_rejected(client, team):
 
 
 def test_human_edits_status_and_fields_but_not_identity(client, team):
-    add(client, "risks", RISK)
+    add(client, "vulnerabilities", VULNERABILITY)
     edited = client.patch(
-        "/workspace/state/risks/R1",
-        json={"status": "accepted", "rationale": "Out of scope for the prototype", "id": "R99", "source": "verifier"},
+        "/workspace/state/vulnerabilities/V1",
+        json={"status": "rejected", "severity": "Low", "id": "V99", "source": "verifier"},
     ).json()
-    assert (edited["id"], edited["source"], edited["status"]) == ("R1", "human", "accepted")
-    assert edited["rationale"] == "Out of scope for the prototype"
-    assert client.patch("/workspace/state/risks/R1", json={"status": "done"}).status_code == 422
+    assert (edited["id"], edited["source"], edited["status"], edited["severity"]) == ("V1", "human", "rejected", "Low")
+    assert client.patch("/workspace/state/vulnerabilities/V1", json={"status": "done"}).status_code == 422
+    add(client, "mitigations", MITIGATION)
+    assert client.patch("/workspace/state/mitigations/M1", json={"status": "implemented"}).json()["status"] == "implemented"
 
 
 def test_delete_keeps_links_consistent_and_ids_are_never_reused(client, team):
@@ -114,16 +116,16 @@ def test_delete_keeps_links_consistent_and_ids_are_never_reused(client, team):
 
 def test_every_change_is_logged_for_the_backend_console(client, team, caplog):
     caplog.set_level(logging.INFO, logger="security_state")
-    add(client, "risks", RISK)
-    client.patch("/workspace/state/risks/R1", json={"status": "accepted"})
-    client.patch("/workspace/state/risks/R1", json={"status": "accepted"})  # no change, nothing logged
-    client.delete("/workspace/state/risks/R1")
+    add(client, "vulnerabilities", VULNERABILITY)
+    client.patch("/workspace/state/vulnerabilities/V1", json={"status": "rejected"})
+    client.patch("/workspace/state/vulnerabilities/V1", json={"status": "rejected"})  # no change, nothing logged
+    client.delete("/workspace/state/vulnerabilities/V1")
 
     added, edited, deleted = [record.getMessage() for record in caplog.records]
-    assert added.startswith("Security state of P01 (task A) changed:\n  + R1 added to risks (by human)\n{")
-    assert '  ~ R1 status: "open" -> "accepted"' in edited
-    assert "  - R1 deleted from risks" in deleted
-    assert '"risks": []' in deleted  # each change is followed by the whole state
+    assert added.startswith("Security state of P01 (task A) changed:\n  + V1 added to vulnerabilities (by human)\n{")
+    assert '  ~ V1 status: "accepted" -> "rejected"' in edited
+    assert "  - V1 deleted from vulnerabilities" in deleted
+    assert '"vulnerabilities": []' in deleted  # each change is followed by the whole state
 
 
 def test_read_one_category_or_item(client, team):

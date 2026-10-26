@@ -14,6 +14,7 @@ from llm import get_model
 class RouteDecision(BaseModel):
     agent: Specialist
     reason: str = Field(description="A short reason the developer will see, e.g. 'you asked about a risk'.")
+    review: bool = Field(default=False, description="True only if the developer asks to have their code reviewed.")
 
 
 def text_of(message: BaseMessage) -> str:
