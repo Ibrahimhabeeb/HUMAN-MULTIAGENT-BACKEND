@@ -13,7 +13,7 @@ from api.chat import router as chat_router
 from api.study import router as study_router
 from api.workspace import router as workspace_router
 from config import get_settings
-from db import init_db
+from db import SessionLocal, init_db
 from services import questionnaire
 
 
@@ -32,6 +32,8 @@ def show_state_changes() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     init_db()
     questionnaire.check()
+    with SessionLocal() as db:
+        questionnaire.sync_items(db)  # the questions, for analysing answers in SQL
     show_state_changes()
     yield
 

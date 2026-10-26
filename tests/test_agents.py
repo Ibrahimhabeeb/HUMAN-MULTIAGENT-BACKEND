@@ -505,8 +505,7 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
     client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
     team_ws = study.current_workspace(db)
     client.post("/study/done")  # the Test/Verifier's final run updates the team state first
-    db.refresh(team_ws)
-    team_state = team_ws.security_state
+    team_state = state_service.load(team_ws).model_dump()
     client.post("/study/mode", json={"mode": "single"})
     single_ws = study.current_workspace(db)
     client.put("/workspace/notes", json={"text": "My private notes"})
@@ -533,9 +532,12 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
     assert decided["status"] == {"approve": "approved", "reject": "rejected"}[decision]
     assert decided["result"] is None
     db.refresh(single_ws)
-    db.refresh(team_ws)
-    assert single_ws.security_state == {} and single_ws.notes == "My private notes"
-    assert team_ws.security_state == team_state
+    single_state = state_service._read(single_ws)  # single mode keeps only its unit tests, for the analysis
+    assert single_state.model_dump(include={"assumptions", "risks", "vulnerabilities", "mitigations"}) == {
+        "assumptions": [], "risks": [], "vulnerabilities": [], "mitigations": [],
+    }
+    assert single_ws.notes == "My private notes"
+    assert state_service._read(team_ws).model_dump() == team_state
     assert client.get("/workspace/files/app/auth.py").json()["content"] == original
     assert model.roles() == ["assistant"]
     assert all(not m["data"].get("kind") for m in client.get("/chat").json()["assistant"])

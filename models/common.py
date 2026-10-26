@@ -1,6 +1,12 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB
+
+# JSON columns are JSONB in PostgreSQL, which can be searched and indexed; plain JSON elsewhere (the tests' SQLite).
+JSONData = JSON().with_variant(JSONB(), "postgresql")
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)

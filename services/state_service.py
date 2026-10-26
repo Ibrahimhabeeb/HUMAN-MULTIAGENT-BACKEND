@@ -3,9 +3,18 @@ import logging
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session, object_session
 
-from models import Workspace
+from models import (
+    AssumptionRecord,
+    MitigationRecord,
+    RiskRecord,
+    UnitTestRecord,
+    VulnerabilityRecord,
+    Workspace,
+)
+from models.common import as_utc
 from schemas.runner import CaseResult
 from schemas.security_state import (
     Actor,
@@ -53,6 +62,23 @@ LINKS: dict[tuple[str, str], Category] = {
 }
 PROTECTED_FIELDS = {"id", "source", "approval_id", "timestamp"}
 
+# Each category's table, and the columns that hold an item's own fields (besides its id, source, approval and time).
+# Vulnerabilities come before mitigations, which point at them.
+RECORD: dict[str, type] = {
+    "assumptions": AssumptionRecord,
+    "risks": RiskRecord,
+    "vulnerabilities": VulnerabilityRecord,
+    "mitigations": MitigationRecord,
+    "tests": UnitTestRecord,
+}
+FIELDS: dict[str, tuple[str, ...]] = {
+    "assumptions": ("text",),
+    "risks": ("description", "severity", "cwe", "owasp", "stride"),
+    "vulnerabilities": ("description", "severity", "file", "line", "cwe", "status"),
+    "mitigations": ("description", "file", "location", "code", "status"),
+    "tests": ("file", "name", "status", "message"),
+}
+
 # Every change is printed in the backend console (main.py sets up the output); the app doesn't show it.
 log = logging.getLogger("security_state")
 
@@ -62,9 +88,70 @@ def require_team(ws: Workspace) -> None:
         raise ConflictError("The shared security state is only used in team mode")
 
 
+# ---- the state in the database: one row per item ---------------------------------------------
+
+
+def lock(ws: Workspace) -> None:
+    # Taken before changing the state, so two requests can't both read it and then both add, say, V3.
+    object_session(ws).execute(update(Workspace).where(Workspace.id == ws.id).values(id=ws.id))
+
+
+def _rows(db: Session, ws: Workspace, category: str) -> list:
+    record = RECORD[category]
+    return list(db.scalars(select(record).where(record.workspace_id == ws.id).order_by(record.id)))
+
+
+def _read(ws: Workspace) -> SecurityState:
+    db = object_session(ws)
+    data: dict[str, Any] = {"counters": dict(ws.state_counters or {})}
+    refs: dict[int, str] = {}  # vulnerability row id -> its ref, for the mitigations that point at them
+    for category in RECORD:
+        items = []
+        for row in _rows(db, ws, category):
+            item = {"id": row.ref, "source": row.source, "approval_id": row.approval_id, "timestamp": as_utc(row.created_at)}
+            item |= {field: getattr(row, field) for field in FIELDS[category]}
+            if category == "vulnerabilities":
+                refs[row.id] = row.ref
+            if category == "mitigations":
+                item["vulnerability_id"] = refs.get(row.vulnerability_id)
+            items.append(item)
+        data[category] = items
+    return SecurityState.model_validate(data)
+
+
+def _write(ws: Workspace, state: SecurityState) -> None:
+    # Adds, updates and deletes rows so the tables match the state. The caller commits.
+    db = object_session(ws)
+    ws.state_counters = dict(state.counters)
+    stale = []
+    vulnerability_ids: dict[str, int] = {}
+    for category, record in RECORD.items():
+        rows = {row.ref: row for row in _rows(db, ws, category)}
+        kept = []
+        for item in getattr(state, category):
+            row = rows.pop(item.id, None)
+            if row is None:
+                row = record(
+                    workspace_id=ws.id, ref=item.id, source=item.source, approval_id=item.approval_id, created_at=item.timestamp
+                )
+                db.add(row)
+            for field in FIELDS[category]:
+                setattr(row, field, getattr(item, field))
+            if category == "mitigations":
+                row.vulnerability_id = vulnerability_ids[item.vulnerability_id]
+            kept.append(row)
+        stale.extend(rows.values())
+        if category == "vulnerabilities":
+            db.flush()  # new vulnerabilities get their row ids before mitigations point at them
+            vulnerability_ids = {row.ref: row.id for row in kept}
+    for row in reversed(stale):  # mitigations go before the vulnerabilities they point at
+        db.delete(row)
+    db.flush()
+
+
 def load(ws: Workspace) -> SecurityState:
     require_team(ws)
-    return SecurityState.model_validate(ws.security_state)
+    return _read(ws)
 
 
 def _short(value: Any) -> str:
@@ -95,10 +182,11 @@ def _changes(old: dict, new: dict) -> list[str]:
 
 
 def save(ws: Workspace, state: SecurityState) -> None:
-    # Assigning a new value is what tells SQLAlchemy the JSON changed. The caller commits.
+    # The caller commits.
+    require_team(ws)
     new = state.model_dump(mode="json")
-    changes = _changes(ws.security_state or {}, new)
-    ws.security_state = new
+    changes = _changes(_read(ws).model_dump(mode="json"), new)
+    _write(ws, state)
     if changes:
         log.info(
             "Security state of %s (task %s) changed:\n%s\n%s",
@@ -205,15 +293,17 @@ def update_tests(
     unreadable: dict[str, str],
     cases: list[CaseResult] | None = None,
     failure: str | None = None,
+    source: Actor = "human",
 ) -> None:
     """List every test function in tests/ as (file, name), with the outcome of the latest run replacing the one
     before. Without a run (cases is None) outcomes stay as they were: open for a new test. A test the run couldn't
-    reach fails with the reason; a test file that can't be read keeps its tests from before."""
+    reach fails with the reason; a test file that can't be read keeps its tests from before. A new test gets
+    `source`: "system" for the task's own tests when the part starts, "human" for ones the developer adds later."""
     existing = {(test.file, test.name): test for test in state.tests}
     outcomes, broken = _outcomes(cases or [], set(functions))
     tests = []
     for file, name in functions:
-        test = existing.get((file, name)) or UnitTest(id=_new_id(state, "tests"), source="verifier", file=file, name=name)
+        test = existing.get((file, name)) or UnitTest(id=_new_id(state, "tests"), source=source, file=file, name=name)
         if cases is not None:
             reason = broken.get(file) or failure
             test.status, test.message = outcomes.get((file, name)) or (("failed", reason) if reason else ("open", None))
@@ -226,6 +316,23 @@ def update_tests(
     state.tests = tests
 
 
+def record_tests(
+    ws: Workspace,
+    functions: list[tuple[str, str]],
+    unreadable: dict[str, str],
+    cases: list[CaseResult] | None = None,
+    failure: str | None = None,
+    source: Actor = "human",
+) -> None:
+    # Unit tests are kept in both modes: single mode stores them for the analysis without showing them.
+    state = _read(ws)
+    update_tests(state, functions, unreadable, cases=cases, failure=failure, source=source)
+    if ws.mode == "team":
+        save(ws, state)
+    else:
+        _write(ws, state)
+
+
 # ---- the human edits the state directly (no approval: the human is the authority) -------------
 
 
@@ -236,6 +343,7 @@ def _commit_human_change(db: Session, ws: Workspace, state: SecurityState, type:
 
 
 def human_add(db: Session, ws: Workspace, category: HumanCategory, body: dict[str, Any]) -> StateItem:
+    lock(ws)
     state = load(ws)
     item = add_item(state, category, CREATE_SCHEMA[category].model_validate(body), "human")
     _commit_human_change(db, ws, state, "state_item_added", {"category": category, "id": item.id})
@@ -243,6 +351,7 @@ def human_add(db: Session, ws: Workspace, category: HumanCategory, body: dict[st
 
 
 def human_edit(db: Session, ws: Workspace, category: HumanCategory, item_id: str, changes: dict[str, Any]) -> StateItem:
+    lock(ws)
     state = load(ws)
     item = edit_item(state, category, item_id, changes)
     detail = {"category": category, "id": item_id, "fields": sorted(set(changes) - PROTECTED_FIELDS)}
@@ -251,6 +360,7 @@ def human_edit(db: Session, ws: Workspace, category: HumanCategory, item_id: str
 
 
 def human_delete(db: Session, ws: Workspace, category: HumanCategory, item_id: str) -> None:
+    lock(ws)
     state = load(ws)
     delete_item(state, category, item_id)
     _commit_human_change(db, ws, state, "state_item_deleted", {"category": category, "id": item_id})

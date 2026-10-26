@@ -50,7 +50,9 @@ def test_export_writes_a_row_per_participant_without_pilots_or_withdrawn(db, tak
 
 def test_withdraw_deletes_their_data_and_never_reuses_the_id(client, db, team, enrol, study_dirs):
     client.put("/workspace/files/app/auth.py", json={"content": "# my code"})
-    client.post("/study/done")  # takes a snapshot
+    client.post("/workspace/state/vulnerabilities", json={"description": "f-string SQL", "severity": "High"})
+    client.post("/workspace/state/mitigations", json={"vulnerability_id": "V1", "description": "Placeholders"})
+    client.post("/study/done")  # takes a snapshot, and records the unit tests' final results
     client.post("/study/restart")
 
     folders = withdraw.withdraw(db, "P01")
@@ -60,6 +62,8 @@ def test_withdraw_deletes_their_data_and_never_reuses_the_id(client, db, team, e
     for table in Base.metadata.sorted_tables:
         if "participant_code" in table.c:
             assert db.execute(table.select().where(table.c.participant_code == "P01")).all() == [], table.name
+        elif "workspace_id" in table.c:  # the security state and unit tests of their parts
+            assert db.execute(table.select()).all() == [], table.name
     assert db.query(Participant).filter_by(code="P01").one().status == "withdrawn"
     assert enrol()["participant"] == "P02"
 

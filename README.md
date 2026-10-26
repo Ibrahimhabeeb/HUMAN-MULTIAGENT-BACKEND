@@ -24,7 +24,7 @@ Optional settings, in `.env` or as environment variables:
 | Setting | Default | Meaning |
 |---|---|---|
 | `TEST_TIMEOUT_SECONDS` | `60` | How long one click on Run tests may take |
-| `DATABASE_URL` | `sqlite:///./data/app.db` | Where everything except code is stored |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | Where everything except code is stored. The study uses PostgreSQL: `postgresql+psycopg://USER:PASSWORD@localhost:5432/HUMANAGENTDB` |
 
 ## Run
 
@@ -42,7 +42,31 @@ uv run pytest
 uv run ruff check .
 ```
 
-The tests never call the AI model and never touch `data/app.db`.
+The tests never call the AI model and never touch the study database: each test uses its own throwaway SQLite
+database. The PostgreSQL-only analysis views are not covered by them.
+
+## Database
+
+With PostgreSQL, the app brings the database up to date itself when it starts, using the Alembic migrations in
+`migrations/versions/`: the tables, then the analysis views. After changing a model, add a migration:
+
+```
+uv run alembic revision --autogenerate -m "what changed"
+uv run alembic upgrade head
+```
+
+The views give the study's statistics directly (open them in pgAdmin under Schemas > public > Views):
+
+| View | One row per | What it gives |
+|---|---|---|
+| `v_part_summary` | part | Time on task, reviews, test runs, typed messages, decisions, and the results below |
+| `v_vulnerability_outcomes` | team part | Findings proposed, accepted, rejected, fixed (mitigation implemented), still without a fix |
+| `v_unit_test_results` | part, both modes | The task's unit tests passed and failed in the latest run: after Finish, the final result |
+| `v_survey` | answer | Each answer with its question, its number (`value_num`) and `score` (reversed if `reverse_scored`) |
+| `v_survey_paired` | participant and question | The per-mode questions, team and single side by side |
+
+`uv run python export.py` writes `results/survey.csv` and, with PostgreSQL, each view as `results/<view>.csv`,
+without pilots or withdrawn participants.
 
 ## Before the study
 
@@ -128,7 +152,7 @@ None of it is committed to git.
 
 | Location | Contents |
 |---|---|
-| `data/app.db` | Participants, hashed session tokens, consent records, the event log, approvals, chat messages, questionnaire answers |
+| The database (`DATABASE_URL`) | Participants, hashed session tokens, consent records, the event log, approvals, chat messages, the security state (one table per section) and unit test results, the questions and the answers |
 | `workspaces/<ID>_<task>_<mode>/` | An independent code workspace for each mode |
 | `snapshots/<ID>_<task>_<mode>/` | That mode's code at each review, test run and Done |
 | `results/` | Exports |

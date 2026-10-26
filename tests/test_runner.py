@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from config import get_settings
-from models import Event
+from models import Event, UnitTestRecord
 from services import runner
 
 VULNERABILITY = {"description": "Query built from user input", "severity": "High", "file": "app/auth.py"}
@@ -101,6 +101,13 @@ def test_team_mode_keeps_each_unit_tests_latest_result(client, db, team):
     client.delete("/workspace/files/tests/test_extra.py")
     run_tests(client)
     assert "test_ok" not in unit_tests(client)
+
+
+def test_single_mode_keeps_unit_test_results_without_showing_them(client, db, single):
+    run_tests(client)
+    rows = db.query(UnitTestRecord).all()
+    assert len(rows) == 3 and {(row.source, row.status) for row in rows} == {("system", "failed")}
+    assert client.get("/workspace/state").status_code == 409  # still not shown in single mode
 
 
 def test_a_test_file_that_cannot_be_read_keeps_its_tests_as_failed(client, team):

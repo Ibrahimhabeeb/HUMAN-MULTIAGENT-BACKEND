@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from models import Approval, Event
+from models import Approval, AssumptionRecord, Event, RiskRecord, VulnerabilityRecord
 from services import approvals, study
 from services.errors import ConflictError
 
@@ -190,7 +190,7 @@ def test_single_mode_cannot_request_security_state_changes(client, db, single, p
     with pytest.raises(ConflictError, match="not available in single mode"):
         propose("assistant", action, {})
     assert client.get("/approvals").json() == []
-    assert study.current_workspace(db).security_state == {}
+    assert db.query(VulnerabilityRecord).count() == db.query(RiskRecord).count() == db.query(AssumptionRecord).count() == 0
 
 
 def test_requests_and_decisions_are_logged(client, db, team, propose):

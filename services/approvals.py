@@ -160,6 +160,8 @@ def decide(db: Session, ws: Workspace, approval_id: int, decision: Decision) -> 
 
     try:
         db.refresh(ws)  # another approval may have changed the shared state while this request waited for its claim
+        if ws.mode == "team":
+            state_service.lock(ws)
         if final is not None:
             approval.result = _apply(db, ws, approval, final)
         elif approval.action_type == "propose_vulnerability" and ws.mode == "team":

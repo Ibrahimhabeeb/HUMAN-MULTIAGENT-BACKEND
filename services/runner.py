@@ -140,11 +140,10 @@ def test_functions(folder: Path) -> tuple[list[tuple[str, str]], dict[str, str]]
 
 
 def _record_results(ws: Workspace, cases: list[CaseResult], failure: str | None) -> None:
-    # Each unit test in the state keeps the outcome of this run, replacing the one before. The event log keeps
-    # every run's results.
-    state = state_service.load(ws)
-    state_service.update_tests(state, *test_functions(workspace.folder(ws)), cases=cases, failure=failure)
-    state_service.save(ws, state)
+    # Each unit test keeps the outcome of this run, replacing the one before (in both modes; single mode doesn't show
+    # them). The event log keeps every run's summary.
+    state_service.lock(ws)
+    state_service.record_tests(ws, *test_functions(workspace.folder(ws)), cases=cases, failure=failure)
 
 
 Trigger = Literal["button", "review", "chat", "finish"]
@@ -158,9 +157,8 @@ def run_tests(db: Session, ws: Workspace, trigger: Trigger = "button") -> dict:
     counts = {outcome: sum(case.outcome == outcome for case in cases) for outcome in get_args(Outcome)}
     status, message = _summary(code, counts)
 
-    if ws.mode == "team":
-        db.refresh(ws)  # the state may have changed while the tests ran
-        _record_results(ws, cases, message if not cases and status in ("error", "timed_out") else None)
+    db.refresh(ws)  # the state may have changed while the tests ran
+    _record_results(ws, cases, message if not cases and status in ("error", "timed_out") else None)
     log_event(
         db,
         ws.participant_code,

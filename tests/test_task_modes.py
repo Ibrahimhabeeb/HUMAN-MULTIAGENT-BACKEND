@@ -105,7 +105,7 @@ def test_legacy_first_attempt_remains_readable_and_does_not_collide_with_the_new
 def test_previously_assigned_legacy_second_task_is_preserved(client, db, team):
     client.post("/study/done")
     # An existing record from the previous A-then-B workflow must not be rewritten.
-    old = Workspace(participant_code="P01", mode="single", task_id="B", part=2, security_state={}, notes="Old notes")
+    old = Workspace(participant_code="P01", mode="single", task_id="B", part=2, notes="Old notes")
     db.add(old)
     db.flush()
     workspace.create_from_starter(old)

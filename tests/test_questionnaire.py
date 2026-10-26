@@ -1,4 +1,4 @@
-from models import SurveyResponse
+from models import QuestionnaireItem, SurveyResponse
 from services import questionnaire
 
 
@@ -50,7 +50,24 @@ def test_only_the_participant_id_is_stored_and_skipped_answers_are_null(client, 
         ("none", "difference"): "Structure",
     }
     assert {r.participant_code for r in rows} == {"P01"}
-    assert set(SurveyResponse.__table__.columns.keys()) == {"id", "participant_code", "condition", "item", "value"}
+    # value_num is the same answer as a number, for the analysis; still nothing about the person or the time.
+    assert set(SurveyResponse.__table__.columns.keys()) == {"id", "participant_code", "condition", "item", "value", "value_num"}
+    assert {(r.condition, r.item): r.value_num for r in rows if r.value is not None} == {
+        ("team", "confidence"): 6, ("none", "preferred"): 1, ("none", "difference"): None,
+    }
+
+
+def test_questions_are_stored_for_the_analysis_and_not_applicable_has_no_number(client, db, team, finish_parts, sample_questionnaire):
+    finish_parts()
+    client.post("/study/questionnaire", json=answers(("team", "roles_clear", "Not applicable"), ("team", "effort", 40)))
+    items = {item.key: (item.type, item.scale_min, item.scale_max) for item in db.query(QuestionnaireItem)}
+    assert items == {
+        "confidence": ("scale", 1, 7), "effort": ("number", 0, 100), "roles_clear": ("scale", 1, 5),
+        "preferred": ("choice", 1, 3), "difference": ("text", None, None),
+    }
+    rows = {(r.condition, r.item): (r.value, r.value_num) for r in db.query(SurveyResponse)}
+    assert rows[("team", "roles_clear")] == ("Not applicable", None)
+    assert rows[("team", "effort")] == ("40", 40)
 
 
 def test_the_form_locks_after_submission(client, team, finish_parts, sample_questionnaire):

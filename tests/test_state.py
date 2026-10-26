@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from models import Event
+from models import Event, MitigationRecord, VulnerabilityRecord
 from services import study
 
 RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
@@ -51,33 +51,19 @@ def test_a_mitigation_cannot_be_edited_to_remove_or_break_its_link(client, team,
     assert client.get("/workspace/state/mitigations/M1").json() == mitigation
 
 
-def test_a_legacy_unlinked_mitigation_can_be_read_and_linked(client, db, team):
+def test_each_item_is_a_row_and_a_mitigation_points_at_its_vulnerability(client, db, team):
     add(client, "vulnerabilities", VULNERABILITY)
-    mitigation = add(client, "mitigations", MITIGATION).json()
-    legacy = {**mitigation, "vulnerability_id": None}
-    ws = study.current_workspace(db)
-    ws.security_state = {**ws.security_state, "mitigations": [legacy]}
-    db.commit()
+    add(client, "mitigations", MITIGATION)
+    (vulnerability,) = db.query(VulnerabilityRecord).all()
+    (mitigation,) = db.query(MitigationRecord).all()
+    assert (vulnerability.ref, vulnerability.status, vulnerability.line) == ("V1", "accepted", 5)
+    assert (mitigation.ref, mitigation.vulnerability_id, mitigation.status) == ("M1", vulnerability.id, "planned")
+    assert client.get("/workspace/state/mitigations/M1").json()["vulnerability_id"] == "V1"  # shown by its id
 
-    assert client.get("/workspace/state").json()["mitigations"] == [legacy]
-    response = client.patch("/workspace/state/mitigations/M1", json={"vulnerability_id": "V1"})
-    assert response.status_code == 200
-    assert response.json() == mitigation
-
-
-def test_existing_findings_with_legacy_risk_links_still_load(client, db, team):
-    vulnerability = add(client, "vulnerabilities", VULNERABILITY).json()
-    ws = study.current_workspace(db)
-    ws.security_state = {
-        **ws.security_state,
-        "vulnerabilities": [{**vulnerability, "risk_id": "R99"}],
-    }
-    db.commit()
-
-    state = client.get("/workspace/state").json()
-    assert state["vulnerabilities"] == [vulnerability]
-    assert state["risks"] == []
-    assert ws.security_state["vulnerabilities"][0]["risk_id"] == "R99"  # reading doesn't rewrite stored data
+    assert client.delete("/workspace/state/mitigations/M1").status_code == 204
+    assert db.query(MitigationRecord).count() == 0  # really deleted
+    assert study.current_workspace(db).state_counters["mitigations"] == 1
+    assert add(client, "mitigations", MITIGATION).json()["id"] == "M2"  # ids are never reused
 
 
 def test_tests_are_not_added_by_hand(client, team):

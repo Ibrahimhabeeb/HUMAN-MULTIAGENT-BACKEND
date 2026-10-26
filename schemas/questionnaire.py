@@ -27,6 +27,7 @@ class Question(BaseModel):
     scale: Scale | None = None  # scale and number questions only
     allow_not_applicable: bool = False
     options: list[str] = Field(default_factory=list)  # choice questions only
+    reverse_scored: bool = False  # negatively worded (higher is worse); for the analysis only, never shown
 
     @model_validator(mode="after")
     def _validate_response_shape(self) -> "Question":

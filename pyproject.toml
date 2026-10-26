@@ -5,6 +5,7 @@ description = "Secure Coding Room backend: multi-agent orchestration and code ru
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.16",
     "bandit>=1.9.4",
     "bcrypt>=5.0.0",
     "fastapi>=0.141.1",
@@ -13,6 +14,7 @@ dependencies = [
     "langchain-openai>=1.6.6",
     "langgraph>=1.2.12",
     "langgraph-checkpoint-sqlite>=3.1.1",
+    "psycopg[binary]>=3.2",
     "pydantic-settings>=2.15.0",
     "pytest>=9.1.1",
     "ruff>=0.16.9",

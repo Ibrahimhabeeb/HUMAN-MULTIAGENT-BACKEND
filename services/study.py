@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 
 from models import ConsentRecord, Participant, StudySession, SurveyResponse, Workspace
 from models.common import as_utc, utc_now
-from schemas.security_state import SecurityState
 from schemas.study import Mode, Screen, TaskId
 from services import content, runner, sessions, state_service, workspace
 from services.errors import ConflictError
@@ -44,16 +43,13 @@ def _open_mode(db: Session, participant: Participant, mode: Mode, task_id: TaskI
         mode=mode,
         task_id=next(iter(existing.values())).task_id if existing else task_id,
         part=len(existing) + 1,
-        security_state=SecurityState().model_dump(mode="json") if mode == "team" else {},
         notes="",
     )
     db.add(ws)
     db.flush()
     workspace.create_from_starter(ws)
-    if mode == "team":  # the task's unit tests are listed from the start, open until they have run
-        state = state_service.load(ws)
-        state_service.update_tests(state, *runner.test_functions(workspace.folder(ws)))
-        state_service.save(ws, state)
+    # The task's unit tests are listed from the start, open until they have run (stored in single mode too).
+    state_service.record_tests(ws, *runner.test_functions(workspace.folder(ws)), source="system")
     log_event(db, participant.code, "part_started", mode=mode, detail={"part": ws.part, "task_id": ws.task_id})
     return ws
 
@@ -197,6 +193,7 @@ def _give_consent(db: Session, consent_version: str) -> Participant:
     try:
         participant = Participant(code=_next_code(db, pending.pilot), mode=sessions.tab(db).switch)
         db.add(participant)
+        db.flush()  # saved first: PostgreSQL checks that every row below points at an existing participant
         db.add(ConsentRecord(participant_code=participant.code, consent_version=consent_version))
         log_event(
             db,
