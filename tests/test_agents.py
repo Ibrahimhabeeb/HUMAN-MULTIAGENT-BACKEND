@@ -74,6 +74,14 @@ def next_reply(client):
     return client.post("/chat/next")
 
 
+def review(client):
+    # A team review, as the frontend does it: the unit tests, then the Code Reviewer's reply in a second request.
+    tested = client.post("/chat/review").json()
+    assert tested["next"] == "reviewer"
+    reviewed = next_reply(client).json()
+    return {**reviewed, "messages": [*tested["messages"], *reviewed["messages"]]}
+
+
 def stream_say(client, content, thread="team"):
     response = client.post(f"/chat/{thread}/stream", json={"content": content})
     assert response.status_code == 200
@@ -165,7 +173,9 @@ def test_the_first_message_runs_the_planner_then_the_threat_modeller_without_a_h
         assert f"Task description (README.md):\n{task}" in sent
         assert source in sent
         assert "The handoff is automatic; no developer confirmation is needed." in sent
-    assert "Give the implementation steps now." in model.last("planner")["messages"][-1]
+    assert "without restating the task description." in model.last("planner")["messages"][-1]
+    assert f"### {source}" in model.last("planner")["messages"][-1]  # the plan is built on the real code
+    assert "### README.md" not in model.last("planner")["messages"][-1]
     assert "Analyse potential threats in this task now" in model.last("threat_modeller")["messages"][-1]
     assert client.get("/approvals").json() == []  # there is no approval for talking or handing off
     assert next_reply(client).status_code == 409  # nobody else is waiting
@@ -243,7 +253,7 @@ def test_the_code_reviewer_records_findings_without_risk_links(client, team, mod
         return "One vulnerability."
 
     model.scripts["reviewer"] = reviewer
-    reply = client.post("/chat/review").json()
+    reply = review(client)
     assert replies == [
         "Not recorded: M9 is not a mitigation in the security state (mitigations: none yet).",
         RECORDED,
@@ -279,7 +289,7 @@ def test_a_clean_review_is_saved_without_creating_proposals(client, team, model,
         return "No vulnerabilities found."
 
     model.scripts["reviewer"] = reviewer
-    reviewed = client.post("/chat/review").json()
+    reviewed = review(client)
     assert reviewed["messages"][-1]["content"] == "No vulnerabilities found."
     assert reviewed["approvals"] == []
     assert reviewed["next"] is None  # the unit tests ran, then the Code Reviewer answered
@@ -303,7 +313,7 @@ def test_fixes_come_only_after_the_developer_approves_the_vulnerability(client, 
         return "One vulnerability."
 
     model.scripts["reviewer"] = reviewer
-    (vulnerability,) = client.post("/chat/review").json()["approvals"]
+    (vulnerability,) = review(client)["approvals"]
     assert replies[1].startswith("Not recorded: V1 is not an accepted vulnerability (accepted: none yet).")
     decide(client, vulnerability["id"])
 
@@ -338,7 +348,7 @@ def test_the_code_reviewer_proposes_each_vulnerability_once(client, team, model)
         return "Two vulnerabilities."
 
     model.scripts["reviewer"] = reviewer
-    waiting, rejected = client.post("/chat/review").json()["approvals"]
+    waiting, rejected = review(client)["approvals"]
     assert replies[2] == "Not recorded: you already proposed this vulnerability in this reply."
     decide(client, rejected["id"], "reject")
 
@@ -370,7 +380,7 @@ def test_review_runs_the_unit_tests_then_the_code_reviewer(client, db, team, mod
         return "One vulnerability, and a fix for V1."
 
     model.scripts["reviewer"] = reviewer
-    first = client.post("/chat/review").json()
+    first = review(client)
     asked, tested, reviewed = first["messages"]
     assert (asked["content"], asked["data"]["route"]) == (REVIEW_MESSAGE, ["verifier", "reviewer"])
     assert (tested["role"], tested["data"]["agent"], tested["data"]["reply_to"]) == ("agent", "verifier", asked["id"])
@@ -398,6 +408,20 @@ def test_review_runs_the_unit_tests_then_the_code_reviewer(client, db, team, mod
         "suggest_fix",
     ]
     assert (study_dirs / "snapshots" / "P01_A_team" / asked["data"]["snapshot"] / "app" / "auth.py").is_file()
+
+
+def test_a_review_returns_the_test_results_before_the_code_reviewer_starts(client, team, model):
+    first = client.post("/chat/review").json()
+    asked, tested = first["messages"]
+    assert (asked["role"], tested["data"]["agent"], first["next"]) == ("human", "verifier", "reviewer")
+    assert model.calls == []  # the Test Results panel can fill while the Code Reviewer is still to come
+    run = tested["data"]["run"]
+    assert (run["status"], run["message"], run["counts"]["failed"]) == ("failed", "3 failed", 3)
+    assert {case["name"] for case in run["tests"]} == {
+        "test_registered_user_can_log_in", "test_wrong_password_is_refused", "test_username_must_be_unique",
+    }
+    reviewed = next_reply(client).json()
+    assert (reviewed["messages"][0]["data"]["agent"], reviewed["next"]) == ("reviewer", None)
 
 
 def test_asking_the_test_verifier_in_chat_runs_the_unit_tests(client, db, team, model):
@@ -434,6 +458,7 @@ def test_a_streamed_review_request_reports_the_tests_before_the_reviewer_streams
         "message", "message", "agent_start", "delta", "delta", "agent_complete", "done",
     ]
     assert streamed[1]["message"]["data"]["agent"] == "verifier"
+    assert streamed[1]["message"]["data"]["run"]["counts"]["failed"] == 3  # for the Test Results panel
     assert streamed[-1]["next"] is None
 
 
@@ -572,7 +597,7 @@ def approve_finding(client, model):
         return "One vulnerability."
 
     model.scripts["reviewer"] = reviewer
-    (finding,) = client.post("/chat/review").json()["approvals"]
+    (finding,) = review(client)["approvals"]
     del model.scripts["reviewer"]
     assert decide(client, finding["id"]).status_code == 200
     return finding_jobs(client)
@@ -726,7 +751,7 @@ def test_two_approval_requests_do_not_lose_either_finding(concurrent_client, enr
         return "Two findings."
 
     model.scripts["reviewer"] = reviewer
-    findings = client.post("/chat/review").json()["approvals"]
+    findings = review(client)["approvals"]
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda a: decide(client, a["id"]), findings))
     assert [r.status_code for r in responses] == [200, 200]
@@ -735,7 +760,7 @@ def test_two_approval_requests_do_not_lose_either_finding(concurrent_client, enr
 
 
 def test_old_review_routes_do_not_leave_a_second_verifier_waiting(client, db, team, model):
-    first = client.post("/chat/review").json()
+    first = review(client)
     asked = db.get(Message, first["messages"][0]["id"])
     asked.data = {**asked.data, "route": ["reviewer", "verifier"]}
     db.commit()

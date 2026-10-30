@@ -26,6 +26,7 @@ from agents.threat_examples import extract as extract_threat_example
 from agents.tools import make_tools
 from agents.turns import log_message_sent, model_call
 from models import Message, Workspace
+from schemas.runner import RunResult
 from schemas.security_state import SecurityState
 from services import chat, runner, workspace
 from services.errors import ConflictError
@@ -140,9 +141,13 @@ def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: Agent
         if agent in ("planner", "threat_modeller"):
             text += f"\n\nTask description (README.md):\n{ctx.task_description}"
             text += "\n\nProject files:\n" + "\n".join(sorted(ctx.files))
+            if agent == "planner":  # the plan is built on the real code, not just the task description
+                code = {path: content for path, content in ctx.files.items() if path != "README.md"}
+                text += f"\n\nThe code as it is now:\n{code_listing(code)}"
             if asked.data.get("route") == FIRST_ROUTE:
                 instruction = (
-                    "Give the implementation steps now. The Threat Modeller will analyse the threats after your plan."
+                    "Give the build steps now, working from the code above, without restating the task description. "
+                    "The Threat Modeller will analyse the threats after your plan."
                     if agent == "planner" else
                     "Analyse potential threats in this task now, building on the plan above. Do not repeat the plan."
                 )
@@ -244,7 +249,8 @@ def _tests_turn(db: Session, ws: Workspace, asked: Message) -> dict:
     # The Test/Verifier doesn't call the model: it runs the task's unit tests, which records each test's result in
     # the security state, and reports them.
     result = runner.run_tests(db, ws, trigger="review" if "snapshot" in asked.data else "chat")
-    data = {"agent": "verifier", "reply_to": asked.id, "tests": result["counts"]}
+    run = RunResult.model_validate(result).model_dump(mode="json")  # the frontend shows it in Test Results
+    data = {"agent": "verifier", "reply_to": asked.id, "run": run}
     message = chat.add_message(db, ws, THREAD, "agent", _test_report(result), data)
     db.commit()
     return {"messages": [message], "approvals": [], "next": next_agent(db, ws)}
@@ -333,9 +339,11 @@ def send_stream(db: Session, ws: Workspace, thread: str, content: str) -> Iterat
 
 
 def review(db: Session, ws: Workspace) -> dict:
+    # Only the unit tests in this request, so their results show straight away. The response names the Code Reviewer
+    # as next, and the frontend asks for its reply with next_reply.
     asked = chat.add_message(db, ws, THREAD, "human", REVIEW_MESSAGE, _start_review(db, ws))
     db.commit()
-    result = _run_route(db, ws, asked)
+    result = _tests_turn(db, ws, asked)
     return {**result, "messages": [asked, *result["messages"]]}
 
 
