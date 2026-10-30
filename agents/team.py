@@ -53,7 +53,7 @@ def _vulnerability_list(state: SecurityState) -> str:
         where = f"{v.file}:{v.line}" if v.file and v.line else v.file
         details = ", ".join(part for part in (v.severity, v.cwe, where) if part)
         fixes = [
-            f"fix {m.id} implemented" if m.status == "implemented" else f"fix {m.id} approved, not yet implemented"
+            f"fix {m.id} implemented" if m.status == "implemented" else f"fix {m.id} planned, not yet in the code"
             for m in state.mitigations
             if m.vulnerability_id == v.id
         ]

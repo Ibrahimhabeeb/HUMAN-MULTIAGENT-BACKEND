@@ -13,12 +13,13 @@ from agents.tools import make_tools
 from agents.turns import model_call
 from models import Approval, Message, Workspace
 from services import chat
-from services.errors import NotFoundError
+from services.errors import ConflictError, NotFoundError
 from services.events import log_event
 from services.followups import KIND
 
 LEASE_SECONDS = 600
-FIX_TOOLS = {"list_files", "read_file", "read_task_description", "get_security_state", "suggest_fix"}
+# Only this follow-up can change the code. The frontend locks the editor while it runs, so no typing is overwritten.
+FIX_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state", "write_fix"]
 
 
 def _result(db: Session, message: Message) -> dict:
@@ -73,16 +74,21 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
             reply = "The Test/Verifier no longer writes tests."
         elif vulnerability is None or vulnerability.status != "accepted":
             reply = f"{target} is no longer an accepted vulnerability; no fix is needed."
+        elif any(m.vulnerability_id == target for m in ctx.state.mitigations):
+            reply = f"{target} already has a mitigation; no fix is needed."
         else:
             text = (
                 f"The developer accepted vulnerability {target}.\n\n{_vulnerability_list(ctx.state)}\n\n"
-                f"Suggest the fix for {target} now: code, file, location and why. The human writes it; "
-                "do not edit any files or propose new vulnerabilities.\n\n"
+                f"Write the fix for {target} now with write_fix. It goes straight into the developer's code, so change "
+                "only what the fix needs. Then say in one or two sentences what you changed and why, without repeating "
+                "the code. Do not propose new vulnerabilities.\n\n"
                 f"Current project files:\n{code_listing(ctx.files)}"
                 f"\n\n{_not_approved(ctx, actor)}"
             )
             with model_call(db, ws, actor):
-                reply = runtime.run_agent(team_prompt(actor), make_tools(ctx, actor, only=FIX_TOOLS), [HumanMessage(text)])
+                reply = runtime.run_agent(team_prompt(actor), make_tools(ctx, actor, names=FIX_TOOLS), [HumanMessage(text)])
+            if not ctx.proposals:
+                raise ConflictError(f"The Code Reviewer didn't write a fix for {target}. Retry it, or fix it yourself.")
 
         # Reclaiming an expired run invalidates its token. Save proposals and reply in one transaction.
         owned = db.execute(update(Message).where(
@@ -94,7 +100,7 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
             return _result(db, job)
         db.refresh(ws)
         if ws.done_at is not None:
-            job.content = "This part finished before the follow-up completed; no new proposals were saved."
+            job.content = "This part finished before the fix was ready, so it wasn't written into the code."
             ctx.proposals.clear()
         saved = chat.save_proposals(db, ws, ctx.proposals, commit=False)
         job.role = "agent"

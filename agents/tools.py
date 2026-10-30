@@ -2,11 +2,12 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
 from agents.context import AgentContext, Proposal, numbered
-from schemas.approval import PROPOSAL_SCHEMAS, SUGGESTIONS
+from schemas.approval import PROPOSAL_SCHEMAS
 from schemas.security_state import SecurityState, Severity, StateItem
 
 # Which tools each agent gets. Reading tools only look at the run's snapshot; every other tool records a proposal
 # that waits for the human's approval, except a suggested risk, which goes straight into the security state.
+# The Code Reviewer's write_fix isn't here: only the follow-up after an accepted vulnerability gets it.
 TOOLS_FOR: dict[str, list[str]] = {
     "planner": ["list_files", "read_file", "read_task_description"],
     "threat_modeller": [
@@ -17,14 +18,13 @@ TOOLS_FOR: dict[str, list[str]] = {
         "propose_assumption",
         "propose_risk",
     ],
-    # An approved fix becomes a mitigation for the vulnerability it fixes; mark_resolved marks one implemented.
+    # mark_resolved marks a planned mitigation implemented.
     "reviewer": [
         "list_files",
         "read_file",
         "read_task_description",
         "get_security_state",
         "propose_vulnerability",
-        "suggest_fix",
         "mark_resolved",
     ],
     # The Test/Verifier has no tools: it runs the task's unit tests without the model.
@@ -82,14 +82,17 @@ def _fix_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str
     mitigation = next((m.id for m in state.mitigations if m.vulnerability_id == target), None)
     if mitigation:
         return f"{target} already has a mitigation ({mitigation})."
-    for earlier in ctx.earlier:
-        if earlier.action_type == "suggest_fix" and earlier.proposal.get("vulnerability") == target:
-            if earlier.status == "pending":
-                return f"a fix for {target} is already waiting for the developer's decision (proposal #{earlier.id})."
-            if earlier.proposal.get("code") == proposal["code"]:
-                return f"the developer rejected this fix (proposal #{earlier.id}). Don't suggest it again."
-    if any(p.action_type == "suggest_fix" and p.proposal.get("vulnerability") == target for p in ctx.proposals):
-        return f"you already suggested a fix for {target} in this reply."
+    if any(p.action_type == "write_fix" and p.proposal.get("vulnerability") == target for p in ctx.proposals):
+        return f"you already wrote a fix for {target} in this reply."
+    file = proposal["file"]
+    if file not in ctx.files:
+        return f"there is no file called {file}. Use list_files to see the files."
+    matches = ctx.files[file].count(proposal["find"])
+    if matches != 1:
+        return (
+            f"find must match the code in {file} exactly once, but it matched {matches} times. Copy it exactly from "
+            "the file, without the line numbers, with enough of the surrounding lines to be unique."
+        )
     return None
 
 
@@ -111,7 +114,7 @@ def _resolve_problem(ctx: AgentContext, state: SecurityState, proposal: dict) ->
 _CHECKS = {
     "propose_risk": _risk_problem,
     "propose_vulnerability": _vulnerability_problem,
-    "suggest_fix": _fix_problem,
+    "write_fix": _fix_problem,
     "mark_resolved": _resolve_problem,
 }
 
@@ -124,21 +127,23 @@ def _problem(ctx: AgentContext, action_type: str, proposal: dict) -> str | None:
     return check(ctx, ctx.state, proposal) if check and ctx.state else None
 
 
-def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -> list[BaseTool]:
+def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None) -> list[BaseTool]:
     def record(action_type: str, **fields) -> str:
         try:
             data = PROPOSAL_SCHEMAS[action_type].model_validate({k: v for k, v in fields.items() if v is not None})
         except ValidationError as e:
             return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
         target = ctx.target_vulnerability
-        if target and action_type == "suggest_fix" and data.vulnerability.strip() != target:
+        if target and action_type == "write_fix" and data.vulnerability.strip() != target:
             return f"Not recorded: this follow-up is only for {target}."
         problem = _problem(ctx, action_type, data.model_dump(mode="json"))
         if problem:
             return f"Not recorded: {problem}"
         ctx.proposals.append(Proposal(actor, action_type, data.model_dump(mode="json")))
-        if action_type in SUGGESTIONS and ctx.state:
+        if action_type == "propose_risk" and ctx.state:
             return "Recorded. It goes straight into the security state as a suggested risk."
+        if action_type == "write_fix":
+            return "Recorded. It goes straight into the code and into the security state as a mitigation."
         return "Recorded. It waits for the developer's approval."
 
     @tool
@@ -198,11 +203,19 @@ def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -
 
     @tool
     def suggest_fix(vulnerability: str, file: str, location: str, code: str, why: str) -> str:
-        """Suggest a fix: what it fixes (an accepted vulnerability's id such as "V2" when there is a security state,
-        otherwise a short description), the full workspace-relative file path (e.g. "app/auth.py"), a precise
-        location (function/class and lines or nearby statement, and whether to replace or insert), the code,
-        and why. For a new file, say to create it in location. Never omit the file path or location."""
+        """Suggest a fix: a short description of what it fixes, the full workspace-relative file path
+        (e.g. "app/auth.py"), a precise location (function/class and lines or nearby statement, and whether to
+        replace or insert), the code, and why. For a new file, say to create it in location. Never omit the file
+        path or location."""
         return record("suggest_fix", vulnerability=vulnerability, file=file, location=location, code=code, why=why)
+
+    @tool
+    def write_fix(vulnerability: str, file: str, find: str, replace: str, why: str) -> str:
+        """Write the fix for an accepted vulnerability straight into the developer's code: its id (e.g. "V2"), the
+        full workspace-relative file path (e.g. "app/auth.py"), the existing code to replace (find), the code that
+        replaces it (replace), and why. find is copied exactly from the current file, without the line numbers, and
+        must match exactly once. To add code, put a nearby line in find and keep that line in replace."""
+        return record("write_fix", vulnerability=vulnerability, file=file, find=find, replace=replace, why=why)
 
     @tool
     def mark_resolved(item_id: str, reason: str) -> str:
@@ -216,4 +229,4 @@ def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -
         return record("propose_test", path=path, content=content, base_content=ctx.files.get(path))
 
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
-    return [available[name] for name in TOOLS_FOR[actor] if only is None or name in only]
+    return [available[name] for name in names or TOOLS_FOR[actor]]

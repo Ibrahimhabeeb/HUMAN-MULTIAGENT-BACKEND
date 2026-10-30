@@ -126,18 +126,19 @@ During a part:
 | Shared security state (team mode) | `GET /workspace/state`, `POST`/`PATCH`/`DELETE /workspace/state/{category}/...` |
 | Notes (single mode) | `GET`/`PUT /workspace/notes` |
 
-Fixes, vulnerabilities, assumptions and test files wait for approval in the chat; the Approvals pane holds
-suggested risks and decision history. Risks go straight into the shared security state as suggestions.
+Vulnerabilities, assumptions and test files wait for approval in the chat; the Approvals pane holds suggested
+risks, fixes written and decision history. Risks go straight into the shared security state as suggestions.
 In team mode, the first message runs the Planner and then the Threat Modeller automatically in one request.
 The Planner gives implementation steps; the Threat Modeller receives that plan and analyses potential attacks,
 impact and expected secure behaviour. Neither the handoff nor reading project files needs a confirmation.
 Each reply is saved before the next agent starts; `POST /chat/next` can retry an interrupted route.
-In single mode, fix/test approvals are decision records only: they never create or update shared security state.
-Approving a fix never changes application code in either mode; the human writes it themselves.
-Approving a vulnerability queues the Reviewer's fix suggestion and the Verifier's test proposal together.
-Their progress is persisted in chat messages, so refresh resumes queued work without duplicating model calls.
-The Verifier reads existing Python files under `tests/` and can propose extending them. Files change only when
-a test proposal is approved; production fixes are always typed by the human.
+In single mode, fix/test approvals are decision records only: they never create or update shared security state,
+and an approved fix never changes the code: the human types it.
+In team mode, accepting a vulnerability queues the Code Reviewer's fix follow-up, the only time an agent changes
+the code. `write_fix` replaces the exact code it names, with no second decision, and records an `implemented`
+mitigation. If that code changed in the meantime nothing is written and the follow-up can be retried. The editor
+is locked while it runs, so autosave can't overwrite the fix. Its progress is persisted in chat messages, so
+refresh resumes queued work without duplicating model calls.
 
 ## Researcher scripts
 

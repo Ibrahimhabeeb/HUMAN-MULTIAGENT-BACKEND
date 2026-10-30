@@ -1,7 +1,7 @@
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from models import Approval, Message, Workspace
+from models import Message, Workspace
 from services import state_service
 
 KIND = "vulnerability_follow_up"
@@ -22,14 +22,9 @@ def queue_missing(db: Session, ws: Workspace) -> None:
         for m in db.scalars(select(Message).where(Message.workspace_id == ws.id))
         if m.data.get("kind") == KIND and m.data.get("agent") == "reviewer"
     }
-    waiting = {
-        a.proposal.get("vulnerability")
-        for a in db.scalars(select(Approval).where(Approval.workspace_id == ws.id, Approval.status == "pending"))
-        if a.action_type == "suggest_fix"
-    }
     fixed = {m.vulnerability_id for m in state.mitigations}
     for vulnerability in state.vulnerabilities:
-        if vulnerability.status != "accepted" or vulnerability.id in fixed | queued | waiting:
+        if vulnerability.status != "accepted" or vulnerability.id in fixed | queued:
             continue
         db.add(
             Message(
@@ -38,7 +33,7 @@ def queue_missing(db: Session, ws: Workspace) -> None:
                 mode=ws.mode,
                 thread="team",
                 role="system",
-                content=f"Preparing fix suggestions for {vulnerability.id}.",
+                content=f"Writing the fix for {vulnerability.id}.",
                 data={
                     "kind": KIND,
                     "agent": "reviewer",

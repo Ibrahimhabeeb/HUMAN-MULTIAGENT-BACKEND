@@ -43,7 +43,8 @@ class VulnerabilityCreate(BaseModel):
 
 
 class MitigationCreate(BaseModel):
-    # A fix the Code Reviewer suggested and the human approved: the code to write, where it goes, and why.
+    # A fix for a vulnerability: the Code Reviewer's, written into the code, or one the human adds: the code, where
+    # it is, and why.
     vulnerability_id: str | None = None  # nullable for legacy data; new/edited items must link to a vulnerability
     description: str = Field(min_length=3, max_length=2000)
     file: str | None = Field(default=None, max_length=300)
@@ -80,7 +81,7 @@ class Vulnerability(StateItem, VulnerabilityCreate):
 
 
 class Mitigation(StateItem, MitigationCreate):
-    status: MitigationStatus = "planned"  # implemented once the developer's code contains the fix
+    status: MitigationStatus = "planned"  # implemented once the code contains the fix
 
 
 class UnitTest(StateItem):

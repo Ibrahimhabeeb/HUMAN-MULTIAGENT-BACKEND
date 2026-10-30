@@ -6,14 +6,14 @@ from sqlalchemy.orm import Session
 from models import Approval, Workspace
 from models.common import as_utc, utc_now
 from schemas.approval import (
+    NO_DECISION,
     PROPOSAL_SCHEMAS,
     SINGLE_MODE_ACTIONS,
-    SUGGESTIONS,
     ActionType,
     Decision,
     ProposedTest,
 )
-from schemas.security_state import MitigationCreate
+from schemas.security_state import MitigationCreate, SecurityState
 from services import followups, state_service, workspace
 from services.errors import ConflictError, NotFoundError
 from services.events import log_event
@@ -30,8 +30,9 @@ _STATUS_FOR = {"approve": "approved", "reject": "rejected"}
 def request_approval(
     db: Session, ws: Workspace, actor: str, action_type: ActionType, proposal: dict, *, commit: bool = True
 ) -> Approval:
-    """Every agent tool call that would change something ends up here. It waits for the human's decision,
-    except a suggested risk, which goes straight into the security state."""
+    """Every agent tool call that would change something ends up here. It waits for the human's decision, except a
+    suggested risk, which goes straight into the security state, and the Code Reviewer's fix, which goes straight
+    into the code."""
     if ws.mode == "single" and action_type not in SINGLE_MODE_ACTIONS:
         raise ConflictError(f"{action_type} is not available in single mode")
     data = PROPOSAL_SCHEMAS[action_type].model_validate(proposal)
@@ -45,8 +46,8 @@ def request_approval(
     )
     db.add(approval)
     db.flush()
-    if action_type in SUGGESTIONS:
-        _suggest(db, ws, approval)
+    if action_type in NO_DECISION:
+        _apply_now(db, ws, approval)
     else:
         log_event(
             db,
@@ -61,11 +62,11 @@ def request_approval(
     return approval
 
 
-def _suggest(db: Session, ws: Workspace, approval: Approval) -> None:
+def _apply_now(db: Session, ws: Workspace, approval: Approval) -> None:
     approval.result = _apply(db, ws, approval, approval.proposal)
     approval.final_proposal = approval.proposal
-    approval.status = "suggested"
-    detail = {"category": "risks", "id": approval.result["item_id"], "approval_id": approval.id}
+    approval.status, category = NO_DECISION[approval.action_type]
+    detail = {"category": category, "id": approval.result["item_id"], "approval_id": approval.id}
     log_event(db, ws.participant_code, "state_item_added", actor=approval.actor, mode=ws.mode, detail=detail)
 
 
@@ -83,27 +84,50 @@ def get_approval(db: Session, ws: Workspace, approval_id: int) -> Approval:
     return approval
 
 
-def _add_mitigation(ws: Workspace, approval: Approval, fix: dict[str, Any]) -> dict:
-    # In team mode an approved fix must point at the vulnerability it fixes.
+def _move_findings(db: Session, ws: Workspace, state: SecurityState, file: str, below: int, by: int) -> None:
+    # The code below a fix has moved, so the findings there keep pointing at the right lines.
+    for vulnerability in state.vulnerabilities:
+        if (vulnerability.file or "").removeprefix("./") == file and (vulnerability.line or 0) > below:
+            vulnerability.line += by
+    for waiting in list_approvals(db, ws, "pending"):
+        proposal = waiting.proposal
+        same_file = (proposal.get("file") or "").removeprefix("./") == file
+        if waiting.action_type == "propose_vulnerability" and same_file and (proposal.get("line") or 0) > below:
+            waiting.proposal = {**proposal, "line": proposal["line"] + by}
+
+
+def _write_fix(db: Session, ws: Workspace, approval: Approval, fix: dict[str, Any]) -> dict:
+    # The only change an agent makes to the code: it goes into the file and into the state as a mitigation.
+    state_service.lock(ws)
+    path, find, replace = fix["file"], fix["find"], fix["replace"]
+    content = workspace.read_file(ws, path)["content"]
+    if content.count(find) != 1:
+        raise ConflictError(f"{path} changed while the fix was being written, so it wasn't applied. Retry it.")
+    line = content[: content.index(find)].count("\n") + 1
+
     state = state_service.load(ws)
     mitigation = MitigationCreate(
-        vulnerability_id=fix["vulnerability"].strip(),
-        description=fix["why"],
-        file=fix["file"],
-        location=fix["location"],
-        code=fix["code"],
+        vulnerability_id=fix["vulnerability"].strip(), description=fix["why"], file=path, location=f"line {line}", code=replace
     )
     item = state_service.add_item(state, "mitigations", mitigation, approval.actor, approval.id)
+    item.status = "implemented"
+    moved = replace.count("\n") - find.count("\n")
+    _move_findings(db, ws, state, path, line + find.count("\n"), moved)
     state_service.save(ws, state)
-    return {"item_id": item.id}
+
+    workspace.write_text(ws, path, content.replace(find, replace))
+    detail = {"path": path, "line": line, "chars": len(replace), "mitigation": item.id, "approval_id": approval.id}
+    log_event(db, ws.participant_code, "fix_written", actor=approval.actor, mode=ws.mode, detail=detail)
+    return {"item_id": item.id, "line": line}
 
 
 def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]) -> dict | None:
     # Makes the approved change. Nothing here commits; decide() commits once at the end.
     action = approval.action_type
     if action == "suggest_fix":
-        # The human types the fix themselves; nothing is written into the code.
-        return _add_mitigation(ws, approval, final) if ws.mode == "team" else None
+        return None  # single mode: the human types the fix themselves; nothing is written into the code
+    if action == "write_fix":
+        return _write_fix(db, ws, approval, final)
 
     if action == "propose_test":
         test = ProposedTest.model_validate(final)
