@@ -8,6 +8,7 @@ import argparse
 import csv
 import json
 from collections import Counter, defaultdict
+from importlib import import_module
 from math import comb
 from pathlib import Path
 from statistics import mean, median
@@ -207,7 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=ROOT / "results" / "analysis")
     args = parser.parse_args()
     try:
-        from scipy import stats
+        stats = import_module("scipy.stats")
     except ImportError:
         stats = None
         print("SciPy unavailable: writing descriptive results without Wilcoxon p-values.")

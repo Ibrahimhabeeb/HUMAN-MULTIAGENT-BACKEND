@@ -7,6 +7,8 @@ uv run python export.py
 uv run --with scipy python analyze_results.py
 ```
 
+SciPy is an analysis-only dependency requested by the second command. It is not installed in the backend's normal `.venv`, so running `python analyze_results.py` directly writes descriptive statistics but leaves Wilcoxon p-values empty. The script loads SciPy at runtime to keep the editor from reporting an unresolved optional import.
+
 `analyze_results.py` reads the five `v_*.csv` files in `results/` and writes:
 
 | File | Contents |
