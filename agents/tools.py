@@ -1,3 +1,5 @@
+import re
+
 from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
@@ -56,6 +58,13 @@ def _risk_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> st
 
 
 def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    description = proposal["description"]
+    if re.search(r"\bno vulnerabilities? (?:were )?found\b", description, re.IGNORECASE) or re.search(
+        r"\bno\b[^.!?]{0,100}\b(?:weakness(?:es)?|vulnerabilit(?:y|ies))\b[^.!?]{0,30}\bfound\b",
+        description,
+        re.IGNORECASE,
+    ):
+        return "the description says no security weakness was found. Report a clean review in chat, without a proposal."
     for v in state.vulnerabilities:
         if _same_place(proposal, v.model_dump()):
             if v.status == "rejected":

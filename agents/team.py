@@ -1,3 +1,4 @@
+import re
 import time
 from collections.abc import Iterator
 
@@ -161,6 +162,17 @@ def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: Agent
     return f"{text}\n\n{not_approved}" if not_approved else text
 
 
+def _consistent_review(agent: Specialist, reply: str, ctx: AgentContext) -> str:
+    # A tool call and the final chat answer can disagree. Never ask the developer to approve a finding
+    # while the Reviewer tells them that no vulnerabilities were found.
+    if agent == "reviewer" and re.match(r"^\s*no vulnerabilities found\b", reply, re.IGNORECASE):
+        findings = [p for p in ctx.proposals if p.action_type == "propose_vulnerability"]
+        if findings:
+            ctx.proposals = [p for p in ctx.proposals if p.action_type != "propose_vulnerability"]
+            return "The Code Reviewer's findings conflicted with its reply, so no new vulnerabilities were submitted. Please run the review again."
+    return reply
+
+
 def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> dict:
     messages = chat.thread_messages(db, ws, THREAD)
     replies = [m for m in messages if m.data.get("reply_to") == asked.id and m.role == "agent"]
@@ -174,6 +186,7 @@ def _answer(db: Session, ws: Workspace, asked: Message, agent: Specialist) -> di
     started = time.monotonic()
     with model_call(db, ws, agent):
         reply = runtime.run_agent(team_prompt(agent), tools, prompt)
+    reply = _consistent_review(agent, reply, ctx)
     if agent == "threat_modeller":
         reply, example = extract_threat_example(reply, set(ctx.files))
         if example:
@@ -212,6 +225,7 @@ def _answer_stream(db: Session, ws: Workspace, asked: Message, agent: Specialist
             chunks.append(delta)
             yield {"type": "delta", "agent": agent, "content": delta}
     reply = "".join(chunks)
+    reply = _consistent_review(agent, reply, ctx)
     if agent == "threat_modeller":
         reply, example = extract_threat_example(reply, set(ctx.files))
         if example:
