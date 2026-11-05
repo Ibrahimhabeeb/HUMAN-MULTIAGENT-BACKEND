@@ -58,6 +58,7 @@ def test_analysis_pairs_only_completed_non_pilot_parts_and_uses_final_tests(tmp_
         rows = list(csv.DictReader(stream))
     assert len(rows) == 1
     assert rows[0]["first_mode"] == "single"
+    assert "# Study analysis" in (tmp_path / "analysis" / "report.md").read_text(encoding="utf-8")
 
 
 def test_wilcoxon_uses_paired_scores_when_enough_answers_exist():
@@ -71,3 +72,25 @@ def test_wilcoxon_uses_paired_scores_when_enough_answers_exist():
     summary = analyze_results.paired_summary(rows, "team", "single", SimpleNamespace(wilcoxon=wilcoxon))
     assert summary["wilcoxon_p_two_sided_exploratory"] == 0.03125
     assert calls == [([4.0] * 5, [2.0] * 5, {"alternative": "two-sided", "zero_method": "wilcox"})]
+
+
+def test_pilot_selection_keeps_submitted_pair_even_if_session_was_not_finished():
+    rows = [
+        {"participant_code": code, "participant_status": status, "pilot": str(pilot),
+         "task_id": "A", "part": str(part), "mode": mode, "submitted": str(submitted)}
+        for code, status, pilot, part, mode, submitted in [
+            ("X01", "incomplete", True, 1, "team", True),
+            ("X01", "incomplete", True, 2, "single", True),
+            ("X02", "active", True, 1, "team", False),
+            ("P01", "complete", False, 1, "team", True),
+            ("P01", "complete", False, 2, "single", True),
+        ]
+    ]
+
+    pilots, excluded = analyze_results.eligible_pairs(rows, pilots=True)
+
+    assert list(pilots) == ["X01"]
+    assert excluded == {"missing_or_duplicate_mode": 1, "outside_cohort": 1}
+    study, excluded = analyze_results.eligible_pairs(rows)
+    assert list(study) == ["P01"]
+    assert excluded == {"pilot": 2}
