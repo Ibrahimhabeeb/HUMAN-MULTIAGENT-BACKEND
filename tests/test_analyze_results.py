@@ -16,7 +16,7 @@ def write_rows(folder, name, rows):
 def test_analysis_pairs_only_completed_non_pilot_parts_and_uses_final_tests(tmp_path):
     parts = [
         {"participant_code": code, "participant_status": status, "pilot": str(pilot),
-         "task_id": "A", "part": str(part), "mode": mode, "submitted": "True",
+         "task_id": "B" if code == "P01" and mode == "team" else "A", "part": str(part), "mode": mode, "submitted": "True",
          "reviews": "2", "test_runs": "1", "messages_typed": "3", "seconds_on_task": "100"}
         for code, status, pilot, part, mode in [
             ("P01", "complete", False, 1, "single"), ("P01", "complete", False, 2, "team"),
@@ -25,7 +25,7 @@ def test_analysis_pairs_only_completed_non_pilot_parts_and_uses_final_tests(tmp_
         ]
     ]
     tests = [
-        {"participant_code": "P01", "mode": mode, "task_id": "A", "task_tests": "3",
+        {"participant_code": "P01", "mode": mode, "task_id": "B" if mode == "team" else "A", "task_tests": "3",
          "task_tests_passed": passed, "task_tests_not_run": "0", "all_task_tests_passed": all_passed}
         for mode, passed, all_passed in [("team", "3", "True"), ("single", "2", "False")]
     ]
@@ -53,11 +53,16 @@ def test_analysis_pairs_only_completed_non_pilot_parts_and_uses_final_tests(tmp_
     assert result["survey_by_item"]["security_confidence"]["mean_paired_difference"] == 2
     assert result["team_state"]["accepted"] == 1
     assert result["team_only_survey"]["state_status_tracking"]["answers"] == {"Agree": 1}
-    assert result["all_task_tests_passed_paired_test"]["team_only_passed"] == 1
+    assert result["all_task_tests_passed_paired_test"] is None
+    assert result["task_assignment_counts"] == {"team": {"B": 1}, "single": {"A": 1}}
+    assert result["task_order_counts"] == {"A -> B": 1}
+    assert result["task_mode_sequence_counts"] == {"A/single -> B/team": 1}
+    assert result["functional_by_task"]["B"]["team"]["passed_all"] == 1
     with (tmp_path / "analysis" / "paired_parts.csv").open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == 1
     assert rows[0]["first_mode"] == "single"
+    assert (rows[0]["team_task_id"], rows[0]["single_task_id"]) == ("B", "A")
     assert "# Study analysis" in (tmp_path / "analysis" / "report.md").read_text(encoding="utf-8")
 
 
@@ -77,7 +82,8 @@ def test_wilcoxon_uses_paired_scores_when_enough_answers_exist():
 def test_pilot_selection_keeps_submitted_pair_even_if_session_was_not_finished():
     rows = [
         {"participant_code": code, "participant_status": status, "pilot": str(pilot),
-         "task_id": "A", "part": str(part), "mode": mode, "submitted": str(submitted)}
+         "task_id": "B" if code == "P01" and mode == "single" else "A",
+         "part": str(part), "mode": mode, "submitted": str(submitted)}
         for code, status, pilot, part, mode, submitted in [
             ("X01", "incomplete", True, 1, "team", True),
             ("X01", "incomplete", True, 2, "single", True),
@@ -94,3 +100,17 @@ def test_pilot_selection_keeps_submitted_pair_even_if_session_was_not_finished()
     study, excluded = analyze_results.eligible_pairs(rows)
     assert list(study) == ["P01"]
     assert excluded == {"pilot": 2}
+
+
+def test_new_study_excludes_legacy_same_task_pairs():
+    rows = [
+        {"participant_code": code, "participant_status": "complete", "pilot": "False",
+         "task_id": task_id, "part": str(part), "mode": mode, "submitted": "True"}
+        for code, task_id, part, mode in [
+            ("P01", "A", 1, "team"), ("P01", "A", 2, "single"),
+            ("P02", "A", 1, "single"), ("P02", "B", 2, "team"),
+        ]
+    ]
+    pairs, excluded = analyze_results.eligible_pairs(rows)
+    assert list(pairs) == ["P02"]
+    assert excluded == {"same_task_legacy_session": 1}

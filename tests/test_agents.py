@@ -1,6 +1,7 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from threading import Event as ThreadEvent
 
 import pytest
@@ -555,10 +556,10 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
     team_ws = study.current_workspace(db)
     client.post("/study/done")  # the Test/Verifier's final run updates the team state first
     team_state = state_service.load(team_ws).model_dump()
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/part-two", json={"task_id": "B"})
     single_ws = study.current_workspace(db)
     client.put("/workspace/notes", json={"text": "My private notes"})
-    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    original = client.get("/workspace/files/app/storage.py").json()["content"]
 
     def unexpected_state_access(*args, **kwargs):
         pytest.fail("Single-mode fixes must not access shared security state")
@@ -568,7 +569,7 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
 
     def assistant(tools):
         assert "get_security_state" not in tools and "propose_vulnerability" not in tools
-        assert tools["suggest_fix"].invoke(SUGGESTION) == RECORDED
+        assert tools["suggest_fix"].invoke({**SUGGESTION, "vulnerability": "Path traversal", "file": "app/storage.py"}) == RECORDED
         return "This is a suggested fix. Approve or reject it, then write any approved changes yourself."
 
     model.scripts["assistant"] = assistant
@@ -576,7 +577,7 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
     assert (fix["actor"], fix["status"]) == ("assistant", "pending")
     stored = db.get(Approval, fix["id"])
     assert (stored.mode, stored.workspace_id) == ("single", single_ws.id)
-    assert fix["proposal"]["vulnerability"] == "SQL injection"  # a description, not a state id
+    assert fix["proposal"]["vulnerability"] == "Path traversal"  # a description, not a state id
     decided = decide(client, fix["id"], decision).json()
     assert decided["status"] == {"approve": "approved", "reject": "rejected"}[decision]
     assert decided["result"] is None
@@ -587,7 +588,7 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
     }
     assert single_ws.notes == "My private notes"
     assert state_service._read(team_ws).model_dump() == team_state
-    assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+    assert client.get("/workspace/files/app/storage.py").json()["content"] == original
     assert model.roles() == ["assistant"]
     assert all(not m["data"].get("kind") for m in client.get("/chat").json()["assistant"])
     assert all(event.type != "state_item_added" for event in events(db) if event.mode == "single")
@@ -600,10 +601,10 @@ def test_each_part_keeps_its_own_conversation_and_a_finished_part_is_read_only(c
     assert client.post("/chat/review").status_code == 409
     assert next_reply(client).status_code == 409
 
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/part-two", json={"task_id": "B"})
     assert client.get("/chat").json() == {"assistant": []}
-    client.post("/study/mode", json={"mode": "team"})
-    assert [m["content"] for m in client.get("/chat/team").json()] == ["Hello", "planner reply", "threat_modeller reply"]
+    assert client.get("/chat/team").status_code == 404
+    assert client.post("/study/mode", json={"mode": "team"}).status_code == 409
 
 
 def test_without_a_configured_model_the_chat_is_unavailable(client, team, monkeypatch):
@@ -807,7 +808,7 @@ def test_followup_cannot_be_run_in_another_or_finished_part(client, team, model)
     assert client.post("/chat/follow-ups/99999").status_code == 404
     client.post("/study/done")
     assert client.post(path).status_code == 409
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/part-two", json={"task_id": "B"})
     assert client.post(path).status_code == 404
 
 
@@ -875,9 +876,10 @@ def test_same_specialist_handles_multiple_findings_in_order(concurrent_client, e
 
 def test_a_fix_is_not_written_after_the_human_finishes_the_part(concurrent_client, enrol, model):
     client = concurrent_client
-    enrol()
+    participant = enrol()["participant"]
     jobs = approve_finding(client, model)
     original = client.get("/workspace/files/app/auth.py").json()["content"]
+    finished_file = Path(get_settings().workspaces_dir) / f"{participant}_A_team" / "app/auth.py"
     entered, release = ThreadEvent(), ThreadEvent()
 
     def reviewer(tools):
@@ -896,4 +898,5 @@ def test_a_fix_is_not_written_after_the_human_finishes_the_part(concurrent_clien
         result = pending.result()
     assert result.status_code == 200 and result.json()["approvals"] == []
     assert "wasn't written into the code" in result.json()["messages"][0]["content"]
-    assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+    assert client.get("/workspace/files/app/auth.py").status_code == 409
+    assert finished_file.read_text(encoding="utf-8") == original

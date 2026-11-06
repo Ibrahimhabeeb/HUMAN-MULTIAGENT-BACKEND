@@ -25,9 +25,9 @@ def enrol_tab(client, mode="team", task="A"):
 
 
 def finish_tab(client):
-    mode = client.get("/study/state").json()["mode"]
+    first_task = client.get("/study/state").json()["task"]["id"]
     assert client.post("/study/done").status_code == 200
-    assert client.post("/study/mode", json={"mode": "single" if mode == "team" else "team"}).status_code == 200
+    assert client.post("/study/part-two", json={"task_id": "B" if first_task == "A" else "A"}).status_code == 200
     assert client.post("/study/done").json()["screen"] == "questionnaire"
 
 
@@ -115,7 +115,7 @@ def test_only_token_hash_is_persisted_and_consented_session_survives_memory_rese
     assert response.json() == state
     assert response.headers["Cache-Control"] == "no-store"
     client.post("/study/done")
-    assert client.post("/study/mode", json={"mode": "single"}).json()["task"]["id"] == "A"
+    assert client.post("/study/part-two", json={"task_id": "B"}).json()["task"]["id"] == "B"
 
 
 def test_finish_and_restart_revoke_only_their_own_token(client, db, sample_questionnaire):

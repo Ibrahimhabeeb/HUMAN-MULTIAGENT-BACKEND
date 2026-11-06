@@ -25,7 +25,7 @@ def test_each_mode_is_labelled_with_its_task_in_the_order_used(client, team, fin
     form = client.get("/study/questionnaire").json()
     assert form["modes"] == [
         {"mode": "team", "label": "Agent team (authentication task)"},
-        {"mode": "single", "label": "Single assistant (authentication task)"},
+        {"mode": "single", "label": "Single assistant (file download task)"},
     ]
     confidence = form["sections"][0]["questions"][0]
     effort = form["sections"][0]["questions"][1]

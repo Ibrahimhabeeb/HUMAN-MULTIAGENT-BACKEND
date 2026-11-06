@@ -92,8 +92,9 @@ Public information/consent content and health checks do not expose participant d
 2. **Information sheet**, then **consent**: `POST /study/continue`, then `POST /study/consent`. Only now is the
    participant ID created: `P01`, `P02`... or `X01`... for pilots.
 3. **Part 1**: the chosen task, in the mode chosen with `POST /study/mode` (`team` or `single`).
-4. **Done**: `POST /study/done`. Continue with the other mode for the same task in part 2,
-   using a fresh starter copy. Each mode keeps its own code, chat, approvals, tests and snapshots.
+4. **Done**: `POST /study/done` saves and closes Part 1. The participant chooses a different task
+   for Part 2 with `POST /study/part-two` and `{"task_id": "B"}`. Part 2 opens in the other mode.
+   Each mode keeps its own code, chat, approvals, tests and snapshots; completed parts cannot be reopened.
 5. **Questionnaire**: `GET /study/questionnaire`, then `POST /study/questionnaire`.
 6. **Thank you**, then **Finish**: `POST /study/finish`.
 

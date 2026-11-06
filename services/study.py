@@ -38,10 +38,12 @@ def _open_mode(db: Session, participant: Participant, mode: Mode, task_id: TaskI
         return existing[mode]
     if any(ws.done_at is None for ws in existing.values()):
         raise ConflictError("Click Done on the current part before starting the other mode")
+    if any(ws.task_id == task_id for ws in existing.values()):
+        raise ConflictError("Choose a different task for the second part")
     ws = Workspace(
         participant_code=participant.code,
         mode=mode,
-        task_id=next(iter(existing.values())).task_id if existing else task_id,
+        task_id=task_id,
         part=len(existing) + 1,
         notes="",
     )
@@ -74,6 +76,8 @@ def current_workspace(db: Session) -> Workspace:
     ws = _workspaces(db, participant.code).get(participant.mode)
     if ws is None:
         raise ConflictError("No part is open")
+    if ws.done_at is not None:
+        raise ConflictError("This part is finished and can no longer be opened")
     return ws
 
 
@@ -110,6 +114,17 @@ def _screen_for(db: Session, participant: Participant, parts: dict[str, Workspac
     return "ide"
 
 
+def next_task_choices(db: Session) -> set[str] | None:
+    """Task IDs already used at the handoff; None outside that screen."""
+    participant = active_participant(db)
+    if participant is None:
+        return None
+    parts = _workspaces(db, participant.code)
+    if _screen_for(db, participant, parts) != "part_complete":
+        return None
+    return {ws.task_id for ws in parts.values()}
+
+
 def get_state(db: Session) -> dict:
     participant = active_participant(db)
     if participant is None:
@@ -126,13 +141,19 @@ def get_state(db: Session) -> dict:
 
     parts = _workspaces(db, participant.code)
     current = parts.get(participant.mode)
+    screen = _screen_for(db, participant, parts)
+    visible_parts = [] if screen == "part_complete" else (
+        [current] if screen == "ide" and current is not None and current.part == 2
+        else sorted(parts.values(), key=lambda ws: ws.part)
+    )
     return {
-        "screen": _screen_for(db, participant, parts),
+        "screen": screen,
         "mode": participant.mode,
         "participant": participant.code,
         "pilot": participant.code.startswith("X"),
         "part": current.part if current else None,
-        "task": {"id": current.task_id, "label": workspace.task_label(current.task_id)} if current else None,
+        "task": {"id": current.task_id, "label": workspace.task_label(current.task_id)} if current and screen != "part_complete" else None,
+        "needs_next_task": screen == "part_complete" and len(parts) == 1,
         "parts": [
             {
                 "part": ws.part,
@@ -141,7 +162,7 @@ def get_state(db: Session) -> dict:
                 "task_label": workspace.task_label(ws.task_id),
                 "done": ws.done_at is not None,
             }
-            for ws in sorted(parts.values(), key=lambda w: w.part)
+            for ws in visible_parts
         ],
     }
 
@@ -222,10 +243,39 @@ def switch_mode(db: Session, mode: Mode) -> None:
         return
     if participant.mode == mode:
         return
+    existing = _workspaces(db, participant.code)
+    current = existing.get(participant.mode)
+    target = existing.get(mode)
+    if current is None or current.done_at is None:
+        raise ConflictError("Finish the current part before changing mode")
+    if target is None:
+        raise ConflictError("Choose a different task to start the second part")
+    if target.done_at is not None or target.part != 2:
+        raise ConflictError("A completed part cannot be reopened")
     try:
-        _open_mode(db, participant, mode)
         log_event(db, participant.code, "mode_switched", mode=mode, detail={"from": participant.mode, "to": mode})
         participant.mode = mode
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
+def start_part_two(db: Session, task_id: TaskId) -> None:
+    participant = require_participant(db)
+    existing = _workspaces(db, participant.code)
+    if len(existing) != 1:
+        raise ConflictError("The second part has already started")
+    first = next(iter(existing.values()))
+    if first.done_at is None:
+        raise ConflictError("Finish the first part before choosing another task")
+    if task_id == first.task_id:
+        raise ConflictError("Choose a different task for the second part")
+    next_mode: Mode = "single" if first.mode == "team" else "team"
+    try:
+        _open_mode(db, participant, next_mode, task_id)
+        participant.mode = next_mode
+        log_event(db, participant.code, "mode_switched", mode=next_mode, detail={"from": first.mode, "to": next_mode})
         db.commit()
     except Exception:
         db.rollback()

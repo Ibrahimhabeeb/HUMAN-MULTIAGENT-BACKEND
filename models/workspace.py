@@ -15,7 +15,7 @@ class Workspace(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     participant_code: Mapped[str] = mapped_column(String(10), ForeignKey("participants.code"), index=True)
     mode: Mapped[str] = mapped_column(String(10))  # team | single
-    task_id: Mapped[str] = mapped_column(String(10))  # the same chosen task (A or B) in both modes
+    task_id: Mapped[str] = mapped_column(String(10))  # each mode can use a different task
     part: Mapped[int] = mapped_column(Integer)  # 1 or 2
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

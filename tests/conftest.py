@@ -107,9 +107,9 @@ def single(enrol):
 def finish_parts(client):
     # Clicks Done on the current part, switches to the other mode and clicks Done again.
     def _finish():
-        mode = client.get("/study/state").json()["mode"]
+        first_task = client.get("/study/state").json()["task"]["id"]
         client.post("/study/done")
-        client.post("/study/mode", json={"mode": "single" if mode == "team" else "team"})
+        client.post("/study/part-two", json={"task_id": "B" if first_task == "A" else "A"})
         client.post("/study/done")
 
     return _finish

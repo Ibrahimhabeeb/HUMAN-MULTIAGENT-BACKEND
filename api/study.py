@@ -12,6 +12,7 @@ from schemas.study import (
     InformationContent,
     Mode,
     ModeRequest,
+    NextTaskRequest,
     SessionToken,
     StartRequest,
     StudyState,
@@ -25,9 +26,17 @@ router = APIRouter(prefix="/study", tags=["study"])
 
 
 def _state(db: Session) -> StudyState:
+    state = study.get_state(db)
+    if state["screen"] == "start":
+        task_ids = get_args(TaskId)
+    elif state.get("needs_next_task"):
+        used_tasks = study.next_task_choices(db) or set()
+        task_ids = [task_id for task_id in get_args(TaskId) if task_id not in used_tasks]
+    else:
+        task_ids = []
     return StudyState(
-        **study.get_state(db),
-        available_tasks=[workspace.task_info(task_id) for task_id in get_args(TaskId)],
+        **state,
+        available_tasks=[workspace.task_info(task_id) for task_id in task_ids],
     )
 
 
@@ -76,6 +85,12 @@ def consent(db: Db, body: ConsentRequest) -> StudyState:
 @router.post("/mode")
 def switch_mode(db: Db, body: ModeRequest) -> StudyState:
     run(lambda: study.switch_mode(db, body.mode))
+    return _state(db)
+
+
+@router.post("/part-two")
+def start_part_two(db: Db, body: NextTaskRequest) -> StudyState:
+    run(lambda: study.start_part_two(db, body.task_id))
     return _state(db)
 
 

@@ -10,8 +10,9 @@ This study compares two ways of working with AI while writing code: with a **tea
 (a planner, a threat modeller, a code reviewer, a test writer and a facilitator), and with a **single AI assistant**.
 
 ## What will I do?
-You will work on the same short programming task in two separate sessions in a code editor in this browser:
-one with the agent team and one with the single assistant. Each session starts with a fresh copy of the task.
+You will work on two different short programming tasks in a code editor in this browser:
+one with the agent team and one with the single assistant. The first task is selected before you begin.
+After finishing it, you will choose a different task for the other mode.
 Afterwards you will answer a short questionnaire about your experience. Allow about one hour for the whole study.
 
 ## What information is collected?

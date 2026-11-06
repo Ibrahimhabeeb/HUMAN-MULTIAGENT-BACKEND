@@ -129,4 +129,4 @@ def test_state_is_team_mode_only(client, single):
 def test_finished_part_cannot_be_edited(client, team):
     client.post("/study/done")
     assert add(client, "risks", RISK).status_code == 409
-    assert client.get("/workspace/state").status_code == 200
+    assert client.get("/workspace/state").status_code == 409

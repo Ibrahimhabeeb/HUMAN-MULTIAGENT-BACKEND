@@ -8,11 +8,12 @@
 | D | Preferences import | CWE-502: Deserialization of untrusted data |
 | E | Account email update | CWE-352: Cross-site request forgery |
 
-The researcher chooses one task before starting the session. Its `task_<X>/` folder is copied to
-`workspaces/<code>_<X>_<mode>/` the first time each mode opens, so both modes use the same task with
-independent starter copies. `tasks.json` holds the label shown to participants
+The researcher chooses the first task before starting the session. After finishing Part 1,
+the participant chooses a different task for Part 2, which uses the other mode. Each task's
+`task_<X>/` folder is copied to an independent `workspaces/<code>_<X>_<mode>/` folder.
+`tasks.json` holds the label shown to participants
 (e.g. in the questionnaire: "Agent team (file download task)"). The `cwe` metadata is shown in
-parentheses in the researcher's task selector; other screens keep the neutral task label.
+parentheses in both task selectors; the editor and questionnaire keep the neutral task label.
 
 Each task has marked implementation stubs and public functional tests. C and D also include sample
 input. E supplies an isolated cookie-authenticated FastAPI harness; its tests use TestClient without

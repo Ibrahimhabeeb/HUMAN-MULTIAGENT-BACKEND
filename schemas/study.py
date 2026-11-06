@@ -20,6 +20,10 @@ class ModeRequest(BaseModel):
     mode: Mode
 
 
+class NextTaskRequest(BaseModel):
+    task_id: TaskId
+
+
 class SessionToken(BaseModel):
     token: str
 
@@ -48,6 +52,7 @@ class StudyState(BaseModel):
     pilot: bool | None = None
     part: int | None = None
     task: TaskInfo | None = None
+    needs_next_task: bool = False
     parts: list[PartInfo] = []
     available_tasks: list[AvailableTask] = []
 

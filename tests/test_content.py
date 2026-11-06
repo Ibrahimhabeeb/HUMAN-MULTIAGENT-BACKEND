@@ -11,7 +11,8 @@ def test_information_sheet_has_researcher_details_and_no_placeholders(client):
     assert "[hi261@exeter.ac.uk](mailto:hi261@exeter.ac.uk)" in text
     assert "Prof. Solomon Oyelere" in text
     assert "Department of Computer Science, University of Exeter" in text
-    assert "same short programming task in two separate sessions" in text
+    assert "two different short programming tasks" in text
+    assert "choose a different task for the other mode" in text
     assert all(marker not in text for marker in ("DRAFT", "CONFIRM", "[DATE", "[NAME"))
 
 
