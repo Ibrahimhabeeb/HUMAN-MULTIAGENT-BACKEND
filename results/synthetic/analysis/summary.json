@@ -1,0 +1,398 @@
+{
+  "cohort": "synthetic",
+  "synthetic_data": true,
+  "pilot_sample_only": false,
+  "participants_in_export": 40,
+  "eligible_paired_participants": 40,
+  "excluded_by_reason": {},
+  "included_status_counts": {
+    "complete": 40
+  },
+  "functional_pairs": 40,
+  "functional_excluded_by_reason": {},
+  "first_mode_counts": {
+    "team": 20,
+    "single": 20
+  },
+  "task_assignment_counts": {
+    "team": {
+      "A": 8,
+      "B": 8,
+      "C": 8,
+      "D": 8,
+      "E": 8
+    },
+    "single": {
+      "B": 8,
+      "A": 8,
+      "C": 8,
+      "D": 8,
+      "E": 8
+    }
+  },
+  "task_order_counts": {
+    "A -> B": 2,
+    "A -> C": 2,
+    "A -> D": 2,
+    "A -> E": 2,
+    "B -> A": 2,
+    "B -> C": 2,
+    "B -> D": 2,
+    "B -> E": 2,
+    "C -> A": 2,
+    "C -> B": 2,
+    "C -> D": 2,
+    "C -> E": 2,
+    "D -> A": 2,
+    "D -> B": 2,
+    "D -> C": 2,
+    "D -> E": 2,
+    "E -> A": 2,
+    "E -> B": 2,
+    "E -> C": 2,
+    "E -> D": 2
+  },
+  "task_mode_sequence_counts": {
+    "A/team -> B/single": 1,
+    "A/single -> B/team": 1,
+    "A/team -> C/single": 1,
+    "A/single -> C/team": 1,
+    "A/team -> D/single": 1,
+    "A/single -> D/team": 1,
+    "A/team -> E/single": 1,
+    "A/single -> E/team": 1,
+    "B/team -> A/single": 1,
+    "B/single -> A/team": 1,
+    "B/team -> C/single": 1,
+    "B/single -> C/team": 1,
+    "B/team -> D/single": 1,
+    "B/single -> D/team": 1,
+    "B/team -> E/single": 1,
+    "B/single -> E/team": 1,
+    "C/team -> A/single": 1,
+    "C/single -> A/team": 1,
+    "C/team -> B/single": 1,
+    "C/single -> B/team": 1,
+    "C/team -> D/single": 1,
+    "C/single -> D/team": 1,
+    "C/team -> E/single": 1,
+    "C/single -> E/team": 1,
+    "D/team -> A/single": 1,
+    "D/single -> A/team": 1,
+    "D/team -> B/single": 1,
+    "D/single -> B/team": 1,
+    "D/team -> C/single": 1,
+    "D/single -> C/team": 1,
+    "D/team -> E/single": 1,
+    "D/single -> E/team": 1,
+    "E/team -> A/single": 1,
+    "E/single -> A/team": 1,
+    "E/team -> B/single": 1,
+    "E/single -> B/team": 1,
+    "E/team -> C/single": 1,
+    "E/single -> C/team": 1,
+    "E/team -> D/single": 1,
+    "E/single -> D/team": 1
+  },
+  "task_design_counts": {
+    "different_tasks": 40
+  },
+  "task_pass_rate": {
+    "n": 40,
+    "team_median": 0.6666666666666666,
+    "single_median": 0.6666666666666666,
+    "mean_paired_difference": 0.0,
+    "team_higher": 16,
+    "single_higher": 16,
+    "tied": 8,
+    "wilcoxon_p_two_sided_exploratory": null
+  },
+  "passed_all_task_tests": {
+    "team": 12,
+    "single": 12
+  },
+  "all_task_tests_passed_paired_test": null,
+  "functional_by_task": {
+    "A": {
+      "team": {
+        "n": 8,
+        "median_pass_rate": 1.0,
+        "passed_all": 5
+      },
+      "single": {
+        "n": 8,
+        "median_pass_rate": 0.6666666666666666,
+        "passed_all": 3
+      }
+    },
+    "B": {
+      "single": {
+        "n": 8,
+        "median_pass_rate": 0.6666666666666666,
+        "passed_all": 3
+      },
+      "team": {
+        "n": 8,
+        "median_pass_rate": 0.6666666666666666,
+        "passed_all": 3
+      }
+    },
+    "C": {
+      "single": {
+        "n": 8,
+        "median_pass_rate": 0.3333333333333333,
+        "passed_all": 1
+      },
+      "team": {
+        "n": 8,
+        "median_pass_rate": 0.5,
+        "passed_all": 2
+      }
+    },
+    "D": {
+      "single": {
+        "n": 8,
+        "median_pass_rate": 0.8333333333333333,
+        "passed_all": 4
+      },
+      "team": {
+        "n": 8,
+        "median_pass_rate": 0.6666666666666666,
+        "passed_all": 1
+      }
+    },
+    "E": {
+      "single": {
+        "n": 8,
+        "median_pass_rate": 0.6666666666666666,
+        "passed_all": 1
+      },
+      "team": {
+        "n": 8,
+        "median_pass_rate": 0.6666666666666666,
+        "passed_all": 1
+      }
+    }
+  },
+  "activity_by_measure": {
+    "reviews": {
+      "n": 40,
+      "team_median": 3.0,
+      "single_median": 2.5,
+      "mean_paired_difference": 0.05,
+      "team_higher": 15,
+      "single_higher": 14,
+      "tied": 11,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "test_runs": {
+      "n": 40,
+      "team_median": 2.5,
+      "single_median": 3.0,
+      "mean_paired_difference": -0.3,
+      "team_higher": 12,
+      "single_higher": 21,
+      "tied": 7,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "messages_typed": {
+      "n": 40,
+      "team_median": 4.0,
+      "single_median": 4.5,
+      "mean_paired_difference": -0.575,
+      "team_higher": 13,
+      "single_higher": 17,
+      "tied": 10,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "seconds_on_task": {
+      "n": 40,
+      "team_median": 2567.0,
+      "single_median": 2220.0,
+      "mean_paired_difference": 365.0,
+      "team_higher": 21,
+      "single_higher": 19,
+      "tied": 0,
+      "wilcoxon_p_two_sided_exploratory": null
+    }
+  },
+  "survey_by_item": {
+    "functional_confidence": {
+      "n": 36,
+      "team_median": 3.0,
+      "single_median": 3.0,
+      "mean_paired_difference": -0.16666666666666666,
+      "team_higher": 15,
+      "single_higher": 14,
+      "tied": 7,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "human_control": {
+      "n": 35,
+      "team_median": 3.0,
+      "single_median": 2.0,
+      "mean_paired_difference": 0.08571428571428572,
+      "team_higher": 14,
+      "single_higher": 10,
+      "tied": 11,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "mitigation_trust": {
+      "n": 34,
+      "team_median": 2.0,
+      "single_median": 3.0,
+      "mean_paired_difference": -0.8235294117647058,
+      "team_higher": 7,
+      "single_higher": 17,
+      "tied": 10,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "recommendation_reliability": {
+      "n": 37,
+      "team_median": 3.0,
+      "single_median": 2.0,
+      "mean_paired_difference": 0.7567567567567568,
+      "team_higher": 20,
+      "single_higher": 11,
+      "tied": 6,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "recommendation_wariness": {
+      "n": 37,
+      "team_median": 3.0,
+      "single_median": 3.0,
+      "mean_paired_difference": -0.05405405405405406,
+      "team_higher": 15,
+      "single_higher": 18,
+      "tied": 4,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "security_advice_effort": {
+      "n": 37,
+      "team_median": 3.0,
+      "single_median": 3.0,
+      "mean_paired_difference": 0.10810810810810811,
+      "team_higher": 16,
+      "single_higher": 13,
+      "tied": 8,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "security_confidence": {
+      "n": 37,
+      "team_median": 3.0,
+      "single_median": 3.0,
+      "mean_paired_difference": -0.10810810810810811,
+      "team_higher": 12,
+      "single_higher": 13,
+      "tied": 12,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "task_effort": {
+      "n": 34,
+      "team_median": 2.0,
+      "single_median": 3.0,
+      "mean_paired_difference": -0.20588235294117646,
+      "team_higher": 10,
+      "single_higher": 15,
+      "tied": 9,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "unnecessary_complexity": {
+      "n": 33,
+      "team_median": 3.0,
+      "single_median": 2.0,
+      "mean_paired_difference": -0.030303030303030304,
+      "team_higher": 13,
+      "single_higher": 12,
+      "tied": 8,
+      "wilcoxon_p_two_sided_exploratory": null
+    },
+    "vulnerability_risk_trust": {
+      "n": 36,
+      "team_median": 3.0,
+      "single_median": 4.0,
+      "mean_paired_difference": -0.3888888888888889,
+      "team_higher": 10,
+      "single_higher": 18,
+      "tied": 8,
+      "wilcoxon_p_two_sided_exploratory": null
+    }
+  },
+  "team_only_survey": {
+    "specialist_role_clarity": {
+      "answers": {
+        "Not applicable": 6,
+        "Strongly agree": 6,
+        "Neither agree nor disagree": 9,
+        "Agree": 9,
+        "Disagree": 3,
+        "Strongly disagree": 5
+      },
+      "missing_or_not_applicable": 8
+    },
+    "state_evidence_traceability": {
+      "answers": {
+        "Strongly agree": 5,
+        "Agree": 6,
+        "Neither agree nor disagree": 6,
+        "Disagree": 10,
+        "Strongly disagree": 10,
+        "Not applicable": 2
+      },
+      "missing_or_not_applicable": 3
+    },
+    "state_mitigation_linkage": {
+      "answers": {
+        "Strongly agree": 6,
+        "Agree": 8,
+        "Disagree": 6,
+        "Strongly disagree": 7,
+        "Neither agree nor disagree": 7,
+        "Not applicable": 4
+      },
+      "missing_or_not_applicable": 6
+    },
+    "state_status_tracking": {
+      "answers": {
+        "Neither agree nor disagree": 8,
+        "Agree": 8,
+        "Disagree": 3,
+        "Strongly agree": 8,
+        "Strongly disagree": 6,
+        "Not applicable": 5
+      },
+      "missing_or_not_applicable": 7
+    },
+    "state_test_visibility": {
+      "answers": {
+        "Strongly agree": 5,
+        "Agree": 8,
+        "Disagree": 7,
+        "Strongly disagree": 14,
+        "Not applicable": 4,
+        "Neither agree nor disagree": 2
+      },
+      "missing_or_not_applicable": 4
+    },
+    "state_unresolved_visibility": {
+      "answers": {
+        "Strongly agree": 8,
+        "Agree": 3,
+        "Strongly disagree": 8,
+        "Disagree": 10,
+        "Not applicable": 5,
+        "Neither agree nor disagree": 4
+      },
+      "missing_or_not_applicable": 7
+    }
+  },
+  "team_state": {
+    "proposed_by_reviewer": 45,
+    "accepted": 40,
+    "rejected": 10,
+    "fixed": 20,
+    "fix_planned": 10,
+    "no_fix": 10
+  },
+  "interpretation": "SYNTHETIC DATA: demonstration only, not participant evidence. Task tests are not a vulnerability audit. Team state is descriptive; fixed means a recorded mitigation. Participant-selected different tasks confound mode comparisons; no mode-effect p-values are calculated for them."
+}

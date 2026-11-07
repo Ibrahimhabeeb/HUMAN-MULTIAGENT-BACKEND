@@ -1,0 +1,1241 @@
+participant_code,participant_status,pilot,condition,number,item,section,type,value,value_num,score
+SYN001,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN001,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN001,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN001,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN001,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN001,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN001,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN001,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN001,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly agree,5,5
+SYN001,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,,,
+SYN001,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN001,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN001,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN001,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN001,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN001,complete,False,single,8,task_effort,Workload,choice,,,
+SYN001,complete,False,team,9,security_advice_effort,Workload,choice,,,
+SYN001,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN001,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN001,complete,False,single,10,human_control,Human control,choice,Some control,3,3
+SYN001,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Not applicable,,
+SYN001,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN001,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly agree,5,5
+SYN001,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN001,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly agree,5,5
+SYN001,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly agree,5,5
+SYN001,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN001,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN001,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN001,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN001,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN002,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN002,complete,False,single,1,functional_confidence,Confidence and usability,choice,,,
+SYN002,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN002,complete,False,single,2,security_confidence,Confidence and usability,choice,,,
+SYN002,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN002,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN002,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN002,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN002,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly agree,5,5
+SYN002,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN002,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN002,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN002,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN002,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,,,
+SYN002,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN002,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN002,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN002,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN002,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN002,complete,False,single,10,human_control,Human control,choice,,,
+SYN002,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly agree,5,5
+SYN002,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Agree,4,4
+SYN002,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Agree,4,4
+SYN002,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN002,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN002,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly agree,5,5
+SYN002,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN002,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN002,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN002,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN002,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN003,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN003,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN003,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN003,complete,False,single,2,security_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN003,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN003,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN003,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN003,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN003,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN003,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN003,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN003,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN003,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN003,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN003,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN003,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN003,complete,False,team,9,security_advice_effort,Workload,choice,None,1,1
+SYN003,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN003,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN003,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN003,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly agree,5,5
+SYN003,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN003,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly agree,5,5
+SYN003,complete,False,team,14,state_status_tracking,Agent team only,choice,Disagree,2,2
+SYN003,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN003,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN003,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN003,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN003,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN003,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN003,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN004,complete,False,team,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN004,complete,False,single,1,functional_confidence,Confidence and usability,choice,Extremely confident,5,5
+SYN004,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN004,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN004,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN004,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,,,
+SYN004,complete,False,team,4,mitigation_trust,Confidence and usability,choice,,,
+SYN004,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN004,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN004,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly agree,5,5
+SYN004,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN004,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN004,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN004,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN004,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN004,complete,False,single,8,task_effort,Workload,choice,None,1,1
+SYN004,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN004,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN004,complete,False,team,10,human_control,Human control,choice,A little control,2,2
+SYN004,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN004,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN004,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN004,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Agree,4,4
+SYN004,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN004,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN004,complete,False,team,16,state_test_visibility,Agent team only,choice,Disagree,2,2
+SYN004,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN004,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN004,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN004,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN004,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN005,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN005,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN005,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN005,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN005,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN005,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN005,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN005,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN005,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN005,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN005,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN005,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN005,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN005,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,,,
+SYN005,complete,False,team,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN005,complete,False,single,8,task_effort,Workload,choice,None,1,1
+SYN005,complete,False,team,9,security_advice_effort,Workload,choice,None,1,1
+SYN005,complete,False,single,9,security_advice_effort,Workload,choice,A little,2,2
+SYN005,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN005,complete,False,single,10,human_control,Human control,choice,A little control,2,2
+SYN005,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN005,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN005,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Neither agree nor disagree,3,3
+SYN005,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN005,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN005,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN005,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN005,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN005,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN005,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN005,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN006,complete,False,team,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN006,complete,False,single,1,functional_confidence,Confidence and usability,choice,Extremely confident,5,5
+SYN006,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN006,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN006,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN006,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN006,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN006,complete,False,single,4,mitigation_trust,Confidence and usability,choice,,,
+SYN006,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN006,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN006,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN006,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN006,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN006,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN006,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN006,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN006,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN006,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN006,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN006,complete,False,single,10,human_control,Human control,choice,Some control,3,3
+SYN006,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN006,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN006,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN006,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly disagree,1,1
+SYN006,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Disagree,2,2
+SYN006,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN006,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN006,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN006,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN006,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN006,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN007,complete,False,team,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN007,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN007,complete,False,team,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN007,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN007,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN007,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN007,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN007,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN007,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN007,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN007,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN007,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN007,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN007,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN007,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN007,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN007,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN007,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN007,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN007,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN007,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Not applicable,,
+SYN007,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Not applicable,,
+SYN007,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN007,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly disagree,1,1
+SYN007,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly disagree,1,1
+SYN007,complete,False,team,16,state_test_visibility,Agent team only,choice,Disagree,2,2
+SYN007,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN007,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN007,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN007,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN007,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN008,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN008,complete,False,single,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN008,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN008,complete,False,single,2,security_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN008,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,,,
+SYN008,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,,,
+SYN008,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN008,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN008,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN008,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN008,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,,,
+SYN008,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN008,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN008,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN008,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN008,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN008,complete,False,team,9,security_advice_effort,Workload,choice,None,1,1
+SYN008,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN008,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN008,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN008,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN008,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN008,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly agree,5,5
+SYN008,complete,False,team,14,state_status_tracking,Agent team only,choice,Not applicable,,
+SYN008,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly agree,5,5
+SYN008,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN008,complete,False,none,17,future_security_mode,Final feedback,choice,,,
+SYN008,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN008,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN008,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN008,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN009,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN009,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN009,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN009,complete,False,single,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN009,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN009,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN009,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN009,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN009,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,,,
+SYN009,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN009,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN009,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN009,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN009,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN009,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN009,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN009,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN009,complete,False,single,9,security_advice_effort,Workload,choice,A little,2,2
+SYN009,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN009,complete,False,single,10,human_control,Human control,choice,A little control,2,2
+SYN009,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN009,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN009,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Agree,4,4
+SYN009,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN009,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Disagree,2,2
+SYN009,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN009,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN009,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN009,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN009,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN009,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN010,complete,False,team,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN010,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN010,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN010,complete,False,single,2,security_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN010,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN010,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN010,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN010,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN010,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN010,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN010,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN010,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN010,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN010,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN010,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN010,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN010,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN010,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN010,complete,False,team,10,human_control,Human control,choice,A little control,2,2
+SYN010,complete,False,single,10,human_control,Human control,choice,A little control,2,2
+SYN010,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly agree,5,5
+SYN010,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN010,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN010,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly disagree,1,1
+SYN010,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Neither agree nor disagree,3,3
+SYN010,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN010,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN010,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN010,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN010,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN010,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN011,complete,False,team,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN011,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN011,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN011,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN011,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN011,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN011,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN011,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN011,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN011,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN011,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN011,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN011,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN011,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN011,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN011,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN011,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN011,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN011,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN011,complete,False,single,10,human_control,Human control,choice,,,
+SYN011,complete,False,team,11,specialist_role_clarity,Agent team only,choice,,,
+SYN011,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN011,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Neither agree nor disagree,3,3
+SYN011,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly disagree,1,1
+SYN011,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Neither agree nor disagree,3,3
+SYN011,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN011,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN011,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN011,complete,False,none,19,security_familiarity,About your experience,choice,,,
+SYN011,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN011,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN012,complete,False,team,1,functional_confidence,Confidence and usability,choice,Extremely confident,5,5
+SYN012,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN012,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN012,complete,False,single,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN012,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN012,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN012,complete,False,team,4,mitigation_trust,Confidence and usability,choice,,,
+SYN012,complete,False,single,4,mitigation_trust,Confidence and usability,choice,,,
+SYN012,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN012,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN012,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN012,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN012,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN012,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN012,complete,False,team,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN012,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN012,complete,False,team,9,security_advice_effort,Workload,choice,None,1,1
+SYN012,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN012,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN012,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN012,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN012,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN012,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN012,complete,False,team,14,state_status_tracking,Agent team only,choice,Disagree,2,2
+SYN012,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly disagree,1,1
+SYN012,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN012,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN012,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN012,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN012,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN012,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN013,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN013,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN013,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN013,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN013,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN013,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN013,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN013,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN013,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN013,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN013,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN013,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN013,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN013,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN013,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN013,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN013,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN013,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN013,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN013,complete,False,single,10,human_control,Human control,choice,,,
+SYN013,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN013,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN013,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN013,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN013,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly disagree,1,1
+SYN013,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN013,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN013,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN013,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN013,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN013,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN014,complete,False,team,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN014,complete,False,single,1,functional_confidence,Confidence and usability,choice,Extremely confident,5,5
+SYN014,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN014,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN014,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN014,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN014,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN014,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN014,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN014,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN014,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN014,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN014,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN014,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN014,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN014,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN014,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN014,complete,False,single,9,security_advice_effort,Workload,choice,,,
+SYN014,complete,False,team,10,human_control,Human control,choice,A little control,2,2
+SYN014,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN014,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN014,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Agree,4,4
+SYN014,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN014,complete,False,team,14,state_status_tracking,Agent team only,choice,Disagree,2,2
+SYN014,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Disagree,2,2
+SYN014,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN014,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN014,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN014,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN014,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN014,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN015,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN015,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN015,complete,False,team,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN015,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN015,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,,,
+SYN015,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN015,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN015,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN015,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN015,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly agree,5,5
+SYN015,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,,,
+SYN015,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN015,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN015,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN015,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN015,complete,False,single,8,task_effort,Workload,choice,,,
+SYN015,complete,False,team,9,security_advice_effort,Workload,choice,None,1,1
+SYN015,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN015,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN015,complete,False,single,10,human_control,Human control,choice,A little control,2,2
+SYN015,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN015,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Neither agree nor disagree,3,3
+SYN015,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN015,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN015,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Disagree,2,2
+SYN015,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN015,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN015,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN015,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN015,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN015,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN016,complete,False,team,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN016,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN016,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN016,complete,False,single,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN016,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN016,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN016,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN016,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN016,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN016,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN016,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN016,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN016,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN016,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN016,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN016,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN016,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN016,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN016,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN016,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN016,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN016,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN016,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN016,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN016,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Neither agree nor disagree,3,3
+SYN016,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN016,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN016,complete,False,none,18,python_experience,About your experience,choice,,,
+SYN016,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN016,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN016,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN017,complete,False,team,1,functional_confidence,Confidence and usability,choice,Extremely confident,5,5
+SYN017,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN017,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN017,complete,False,single,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN017,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN017,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN017,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN017,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN017,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN017,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN017,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN017,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN017,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN017,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN017,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN017,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN017,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN017,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN017,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN017,complete,False,single,10,human_control,Human control,choice,Some control,3,3
+SYN017,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Not applicable,,
+SYN017,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN017,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN017,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN017,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Neither agree nor disagree,3,3
+SYN017,complete,False,team,16,state_test_visibility,Agent team only,choice,Not applicable,,
+SYN017,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN017,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN017,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN017,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN017,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN018,complete,False,team,1,functional_confidence,Confidence and usability,choice,,,
+SYN018,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN018,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN018,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN018,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN018,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN018,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN018,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN018,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,,,
+SYN018,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN018,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN018,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN018,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN018,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN018,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN018,complete,False,single,8,task_effort,Workload,choice,None,1,1
+SYN018,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN018,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN018,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN018,complete,False,single,10,human_control,Human control,choice,A little control,2,2
+SYN018,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Disagree,2,2
+SYN018,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN018,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN018,complete,False,team,14,state_status_tracking,Agent team only,choice,Not applicable,,
+SYN018,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Disagree,2,2
+SYN018,complete,False,team,16,state_test_visibility,Agent team only,choice,Disagree,2,2
+SYN018,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN018,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN018,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN018,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN018,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN019,complete,False,team,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN019,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN019,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN019,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN019,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN019,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN019,complete,False,team,4,mitigation_trust,Confidence and usability,choice,,,
+SYN019,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN019,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN019,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly agree,5,5
+SYN019,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN019,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN019,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN019,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN019,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN019,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN019,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN019,complete,False,single,9,security_advice_effort,Workload,choice,A little,2,2
+SYN019,complete,False,team,10,human_control,Human control,choice,A little control,2,2
+SYN019,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN019,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN019,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN019,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN019,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN019,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN019,complete,False,team,16,state_test_visibility,Agent team only,choice,Not applicable,,
+SYN019,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN019,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN019,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN019,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN019,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN020,complete,False,team,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN020,complete,False,single,1,functional_confidence,Confidence and usability,choice,,,
+SYN020,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN020,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN020,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN020,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN020,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN020,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN020,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN020,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN020,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN020,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN020,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN020,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN020,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN020,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN020,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN020,complete,False,single,9,security_advice_effort,Workload,choice,A little,2,2
+SYN020,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN020,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN020,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Not applicable,,
+SYN020,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Not applicable,,
+SYN020,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN020,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN020,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly agree,5,5
+SYN020,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN020,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN020,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN020,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN020,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN020,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN021,complete,False,team,1,functional_confidence,Confidence and usability,choice,,,
+SYN021,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN021,complete,False,team,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN021,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN021,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN021,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN021,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN021,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN021,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN021,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN021,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN021,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN021,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN021,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN021,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN021,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN021,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN021,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN021,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN021,complete,False,single,10,human_control,Human control,choice,Some control,3,3
+SYN021,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN021,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN021,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN021,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly disagree,1,1
+SYN021,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Neither agree nor disagree,3,3
+SYN021,complete,False,team,16,state_test_visibility,Agent team only,choice,Disagree,2,2
+SYN021,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN021,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN021,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN021,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN021,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN022,complete,False,team,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN022,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN022,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN022,complete,False,single,2,security_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN022,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN022,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN022,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN022,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN022,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN022,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN022,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN022,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN022,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN022,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN022,complete,False,team,8,task_effort,Workload,choice,,,
+SYN022,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN022,complete,False,team,9,security_advice_effort,Workload,choice,None,1,1
+SYN022,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN022,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN022,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN022,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly agree,5,5
+SYN022,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Neither agree nor disagree,3,3
+SYN022,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN022,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN022,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Disagree,2,2
+SYN022,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly agree,5,5
+SYN022,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN022,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN022,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN022,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN022,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN023,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN023,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN023,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN023,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN023,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN023,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN023,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN023,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN023,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN023,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN023,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN023,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN023,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN023,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN023,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN023,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN023,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN023,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN023,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN023,complete,False,single,10,human_control,Human control,choice,,,
+SYN023,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Disagree,2,2
+SYN023,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Not applicable,,
+SYN023,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN023,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN023,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly agree,5,5
+SYN023,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN023,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN023,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN023,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN023,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN023,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN024,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN024,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN024,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN024,complete,False,single,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN024,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN024,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN024,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN024,complete,False,single,4,mitigation_trust,Confidence and usability,choice,,,
+SYN024,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN024,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN024,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN024,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN024,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN024,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN024,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN024,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN024,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN024,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN024,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN024,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN024,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly disagree,1,1
+SYN024,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN024,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Not applicable,,
+SYN024,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN024,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,,,
+SYN024,complete,False,team,16,state_test_visibility,Agent team only,choice,Disagree,2,2
+SYN024,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN024,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN024,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN024,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN024,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN025,complete,False,team,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN025,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN025,complete,False,team,2,security_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN025,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN025,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN025,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN025,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN025,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN025,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN025,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN025,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN025,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN025,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN025,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN025,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN025,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN025,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN025,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN025,complete,False,team,10,human_control,Human control,choice,A little control,2,2
+SYN025,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN025,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly disagree,1,1
+SYN025,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN025,complete,False,team,13,state_evidence_traceability,Agent team only,choice,,,
+SYN025,complete,False,team,14,state_status_tracking,Agent team only,choice,,,
+SYN025,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Not applicable,,
+SYN025,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN025,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN025,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN025,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN025,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN025,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN026,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN026,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN026,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN026,complete,False,single,2,security_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN026,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN026,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN026,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN026,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN026,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,,,
+SYN026,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN026,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN026,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN026,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN026,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN026,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN026,complete,False,single,8,task_effort,Workload,choice,None,1,1
+SYN026,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN026,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN026,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN026,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN026,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Not applicable,,
+SYN026,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN026,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly agree,5,5
+SYN026,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN026,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly agree,5,5
+SYN026,complete,False,team,16,state_test_visibility,Agent team only,choice,Neither agree nor disagree,3,3
+SYN026,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN026,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN026,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN026,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN026,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN027,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN027,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN027,complete,False,team,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN027,complete,False,single,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN027,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN027,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN027,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN027,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN027,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly agree,5,5
+SYN027,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN027,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN027,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN027,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN027,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN027,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN027,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN027,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN027,complete,False,single,9,security_advice_effort,Workload,choice,A little,2,2
+SYN027,complete,False,team,10,human_control,Human control,choice,A little control,2,2
+SYN027,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN027,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly disagree,1,1
+SYN027,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN027,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Neither agree nor disagree,3,3
+SYN027,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN027,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly disagree,1,1
+SYN027,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly agree,5,5
+SYN027,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN027,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN027,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN027,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN027,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN028,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN028,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN028,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN028,complete,False,single,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN028,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN028,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN028,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN028,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN028,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly agree,5,5
+SYN028,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,,,
+SYN028,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN028,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN028,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN028,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN028,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN028,complete,False,single,8,task_effort,Workload,choice,,,
+SYN028,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN028,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN028,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN028,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN028,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Not applicable,,
+SYN028,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN028,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly agree,5,5
+SYN028,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN028,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Not applicable,,
+SYN028,complete,False,team,16,state_test_visibility,Agent team only,choice,Disagree,2,2
+SYN028,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN028,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN028,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN028,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN028,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN029,complete,False,team,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN029,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN029,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN029,complete,False,single,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN029,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN029,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN029,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN029,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN029,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN029,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN029,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN029,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN029,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN029,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN029,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN029,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN029,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN029,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN029,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN029,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN029,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN029,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,,,
+SYN029,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Agree,4,4
+SYN029,complete,False,team,14,state_status_tracking,Agent team only,choice,Not applicable,,
+SYN029,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,,,
+SYN029,complete,False,team,16,state_test_visibility,Agent team only,choice,Neither agree nor disagree,3,3
+SYN029,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN029,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN029,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN029,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN029,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN030,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN030,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN030,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN030,complete,False,single,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN030,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN030,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN030,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN030,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN030,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN030,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN030,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN030,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN030,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN030,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN030,complete,False,team,8,task_effort,Workload,choice,None,1,1
+SYN030,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN030,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN030,complete,False,single,9,security_advice_effort,Workload,choice,A little,2,2
+SYN030,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN030,complete,False,single,10,human_control,Human control,choice,Some control,3,3
+SYN030,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN030,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN030,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN030,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN030,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly disagree,1,1
+SYN030,complete,False,team,16,state_test_visibility,Agent team only,choice,Disagree,2,2
+SYN030,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN030,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN030,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN030,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN030,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN031,complete,False,team,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN031,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN031,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN031,complete,False,single,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN031,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN031,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN031,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN031,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN031,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN031,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN031,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN031,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN031,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN031,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN031,complete,False,team,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN031,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN031,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN031,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN031,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN031,complete,False,single,10,human_control,Human control,choice,A little control,2,2
+SYN031,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Disagree,2,2
+SYN031,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly agree,5,5
+SYN031,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Not applicable,,
+SYN031,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly agree,5,5
+SYN031,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN031,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN031,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN031,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN031,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN031,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN031,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN032,complete,False,team,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN032,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN032,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN032,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN032,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN032,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN032,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN032,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN032,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN032,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN032,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN032,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN032,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN032,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN032,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN032,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN032,complete,False,team,9,security_advice_effort,Workload,choice,,,
+SYN032,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN032,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN032,complete,False,single,10,human_control,Human control,choice,,,
+SYN032,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly disagree,1,1
+SYN032,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Neither agree nor disagree,3,3
+SYN032,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN032,complete,False,team,14,state_status_tracking,Agent team only,choice,,,
+SYN032,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly disagree,1,1
+SYN032,complete,False,team,16,state_test_visibility,Agent team only,choice,Not applicable,,
+SYN032,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN032,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN032,complete,False,none,19,security_familiarity,About your experience,choice,,,
+SYN032,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN032,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN033,complete,False,team,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN033,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN033,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN033,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN033,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN033,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,,,
+SYN033,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN033,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN033,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN033,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN033,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN033,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN033,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN033,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN033,complete,False,team,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN033,complete,False,single,8,task_effort,Workload,choice,A great deal,4,4
+SYN033,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN033,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN033,complete,False,team,10,human_control,Human control,choice,A great deal of control,4,4
+SYN033,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN033,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly agree,5,5
+SYN033,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,,,
+SYN033,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Neither agree nor disagree,3,3
+SYN033,complete,False,team,14,state_status_tracking,Agent team only,choice,Strongly disagree,1,1
+SYN033,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Not applicable,,
+SYN033,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN033,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN033,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN033,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN033,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN033,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN034,complete,False,team,1,functional_confidence,Confidence and usability,choice,Extremely confident,5,5
+SYN034,complete,False,single,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN034,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN034,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN034,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN034,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN034,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN034,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN034,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN034,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN034,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN034,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,,,
+SYN034,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN034,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN034,complete,False,team,8,task_effort,Workload,choice,,,
+SYN034,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN034,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN034,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN034,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN034,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN034,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly agree,5,5
+SYN034,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN034,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Neither agree nor disagree,3,3
+SYN034,complete,False,team,14,state_status_tracking,Agent team only,choice,Not applicable,,
+SYN034,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN034,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly agree,5,5
+SYN034,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN034,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN034,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN034,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN034,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN035,complete,False,team,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN035,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN035,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN035,complete,False,single,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN035,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN035,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN035,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN035,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Agree,4,4
+SYN035,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,,,
+SYN035,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN035,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN035,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN035,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN035,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN035,complete,False,team,8,task_effort,Workload,choice,A great deal,4,4
+SYN035,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN035,complete,False,team,9,security_advice_effort,Workload,choice,A little,2,2
+SYN035,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN035,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN035,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN035,complete,False,team,11,specialist_role_clarity,Agent team only,choice,,,
+SYN035,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN035,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Agree,4,4
+SYN035,complete,False,team,14,state_status_tracking,Agent team only,choice,Not applicable,,
+SYN035,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly disagree,1,1
+SYN035,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN035,complete,False,none,17,future_security_mode,Final feedback,choice,Single assistant,2,2
+SYN035,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN035,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN035,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN035,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN036,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN036,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN036,complete,False,team,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN036,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN036,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN036,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN036,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN036,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN036,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN036,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN036,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly agree,5,5
+SYN036,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN036,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN036,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,,,
+SYN036,complete,False,team,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN036,complete,False,single,8,task_effort,Workload,choice,A little,2,2
+SYN036,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN036,complete,False,single,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN036,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN036,complete,False,single,10,human_control,Human control,choice,A great deal of control,4,4
+SYN036,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN036,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Disagree,2,2
+SYN036,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN036,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN036,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Neither agree nor disagree,3,3
+SYN036,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN036,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN036,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN036,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN036,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN036,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN037,complete,False,team,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN037,complete,False,single,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN037,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN037,complete,False,single,2,security_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN037,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN037,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN037,complete,False,team,4,mitigation_trust,Confidence and usability,choice,,,
+SYN037,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN037,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN037,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,,,
+SYN037,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN037,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN037,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN037,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN037,complete,False,team,8,task_effort,Workload,choice,,,
+SYN037,complete,False,single,8,task_effort,Workload,choice,None,1,1
+SYN037,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN037,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN037,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN037,complete,False,single,10,human_control,Human control,choice,A little control,2,2
+SYN037,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Strongly disagree,1,1
+SYN037,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Not applicable,,
+SYN037,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Neither agree nor disagree,3,3
+SYN037,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN037,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Neither agree nor disagree,3,3
+SYN037,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN037,complete,False,none,17,future_security_mode,Final feedback,choice,No preference,3,3
+SYN037,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN037,complete,False,none,19,security_familiarity,About your experience,choice,Somewhat familiar,2,2
+SYN037,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN037,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN038,complete,False,team,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN038,complete,False,single,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN038,complete,False,team,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN038,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN038,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN038,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN038,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN038,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN038,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN038,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Disagree,2,2
+SYN038,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Disagree,2,2
+SYN038,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN038,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Agree,4,4
+SYN038,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly disagree,1,1
+SYN038,complete,False,team,8,task_effort,Workload,choice,A little,2,2
+SYN038,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN038,complete,False,team,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN038,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN038,complete,False,team,10,human_control,Human control,choice,Some control,3,3
+SYN038,complete,False,single,10,human_control,Human control,choice,Some control,3,3
+SYN038,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN038,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Neither agree nor disagree,3,3
+SYN038,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Strongly disagree,1,1
+SYN038,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN038,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Strongly agree,5,5
+SYN038,complete,False,team,16,state_test_visibility,Agent team only,choice,Not applicable,,
+SYN038,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN038,complete,False,none,18,python_experience,About your experience,choice,1-3 years,2,2
+SYN038,complete,False,none,19,security_familiarity,About your experience,choice,Very familiar,3,3
+SYN038,complete,False,none,20,ai_assistant_use,About your experience,choice,Never,1,1
+SYN038,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN039,complete,False,team,1,functional_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN039,complete,False,single,1,functional_confidence,Confidence and usability,choice,Very confident,4,4
+SYN039,complete,False,team,2,security_confidence,Confidence and usability,choice,,,
+SYN039,complete,False,single,2,security_confidence,Confidence and usability,choice,Very confident,4,4
+SYN039,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Agree,4,4
+SYN039,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN039,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN039,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Strongly agree,5,5
+SYN039,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Agree,4,4
+SYN039,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Strongly disagree,1,1
+SYN039,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN039,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN039,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Disagree,2,2
+SYN039,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN039,complete,False,team,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN039,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN039,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN039,complete,False,single,9,security_advice_effort,Workload,choice,A great deal,4,4
+SYN039,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN039,complete,False,single,10,human_control,Human control,choice,No control,1,1
+SYN039,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Agree,4,4
+SYN039,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Agree,4,4
+SYN039,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Disagree,2,2
+SYN039,complete,False,team,14,state_status_tracking,Agent team only,choice,Neither agree nor disagree,3,3
+SYN039,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Not applicable,,
+SYN039,complete,False,team,16,state_test_visibility,Agent team only,choice,Strongly disagree,1,1
+SYN039,complete,False,none,17,future_security_mode,Final feedback,choice,Not sure,4,4
+SYN039,complete,False,none,18,python_experience,About your experience,choice,More than 3 years,3,3
+SYN039,complete,False,none,19,security_familiarity,About your experience,choice,Not familiar,1,1
+SYN039,complete,False,none,20,ai_assistant_use,About your experience,choice,Sometimes,2,2
+SYN039,complete,False,none,21,open_feedback,Final comments,text,,,
+SYN040,complete,False,team,1,functional_confidence,Confidence and usability,choice,Slightly confident,2,2
+SYN040,complete,False,single,1,functional_confidence,Confidence and usability,choice,Not at all confident,1,1
+SYN040,complete,False,team,2,security_confidence,Confidence and usability,choice,,,
+SYN040,complete,False,single,2,security_confidence,Confidence and usability,choice,Moderately confident,3,3
+SYN040,complete,False,team,3,vulnerability_risk_trust,Confidence and usability,choice,Disagree,2,2
+SYN040,complete,False,single,3,vulnerability_risk_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN040,complete,False,team,4,mitigation_trust,Confidence and usability,choice,Strongly disagree,1,1
+SYN040,complete,False,single,4,mitigation_trust,Confidence and usability,choice,Disagree,2,2
+SYN040,complete,False,team,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN040,complete,False,single,5,unnecessary_complexity,Confidence and usability,choice,Neither agree nor disagree,3,3
+SYN040,complete,False,team,6,recommendation_reliability,Reliability and caution,choice,Agree,4,4
+SYN040,complete,False,single,6,recommendation_reliability,Reliability and caution,choice,Strongly disagree,1,1
+SYN040,complete,False,team,7,recommendation_wariness,Reliability and caution,choice,Neither agree nor disagree,3,3
+SYN040,complete,False,single,7,recommendation_wariness,Reliability and caution,choice,Strongly agree,5,5
+SYN040,complete,False,team,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN040,complete,False,single,8,task_effort,Workload,choice,A moderate amount,3,3
+SYN040,complete,False,team,9,security_advice_effort,Workload,choice,A moderate amount,3,3
+SYN040,complete,False,single,9,security_advice_effort,Workload,choice,None,1,1
+SYN040,complete,False,team,10,human_control,Human control,choice,No control,1,1
+SYN040,complete,False,single,10,human_control,Human control,choice,Some control,3,3
+SYN040,complete,False,team,11,specialist_role_clarity,Agent team only,choice,Neither agree nor disagree,3,3
+SYN040,complete,False,team,12,state_unresolved_visibility,Agent team only,choice,Not applicable,,
+SYN040,complete,False,team,13,state_evidence_traceability,Agent team only,choice,Agree,4,4
+SYN040,complete,False,team,14,state_status_tracking,Agent team only,choice,Agree,4,4
+SYN040,complete,False,team,15,state_mitigation_linkage,Agent team only,choice,Agree,4,4
+SYN040,complete,False,team,16,state_test_visibility,Agent team only,choice,Agree,4,4
+SYN040,complete,False,none,17,future_security_mode,Final feedback,choice,Agent team,1,1
+SYN040,complete,False,none,18,python_experience,About your experience,choice,Less than 1 year,1,1
+SYN040,complete,False,none,19,security_familiarity,About your experience,choice,,,
+SYN040,complete,False,none,20,ai_assistant_use,About your experience,choice,Often,3,3
+SYN040,complete,False,none,21,open_feedback,Final comments,text,,,

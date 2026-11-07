@@ -103,10 +103,12 @@ def write_csv(path, rows, fields):
 
 def write_report(path, summary, functional):
     cohort = summary["cohort"]
-    title = "Pilot sample analysis" if cohort == "pilot" else "Study analysis"
+    title = {"synthetic": "Synthetic mock analysis", "pilot": "Pilot sample analysis"}.get(cohort, "Study analysis")
     task = summary["task_pass_rate"]
     lines = [f"# {title}", ""]
-    if cohort == "pilot":
+    if cohort == "synthetic":
+        lines += ["**Fabricated demonstration data. These are not participant observations or study findings.**", ""]
+    elif cohort == "pilot":
         lines += ["**Illustrative pilot data only. Do not report these numbers as final study findings.**", ""]
     lines += [
         (f"Paired participants: **{summary['eligible_paired_participants']}**; "
@@ -175,13 +177,17 @@ def write_report(path, summary, functional):
          "Recorded mitigations are not an independent code assessment. "
          "Questionnaire medians are item responses, not a validated combined scale."),
     ]
-    if cohort == "pilot":
+    if cohort == "synthetic":
+        lines += ["", "Any figures in this report demonstrate the analysis workflow only."]
+    elif cohort == "pilot":
         lines += ["", "This pilot sample is too small for conclusions about which mode performs better."]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def analyse(source: Path, destination: Path, stats=None, *, pilots=False):
+def analyse(source: Path, destination: Path, stats=None, *, pilots=False, synthetic=False):
     parts = read_csv(source, "v_part_summary.csv")
+    if synthetic and (not parts or any(not row["participant_code"].startswith("SYN") for row in parts)):
+        raise ValueError("--synthetic requires a nonempty SYN-prefixed mock dataset")
     tests = index_unique(read_csv(source, "v_unit_test_results.csv"), ("participant_code", "mode"))
     survey = read_csv(source, "v_survey_paired.csv")
     all_survey = read_csv(source, "v_survey.csv")
@@ -254,7 +260,8 @@ def analyse(source: Path, destination: Path, stats=None, *, pilots=False):
             by_task[row[f"{mode}_task_id"]][mode].append(row)
     legacy_only = bool(pairs) and all(p["team"]["task_id"] == p["single"]["task_id"] for p in pairs.values())
     result = {
-        "cohort": "pilot" if pilots else "study",
+        "cohort": "synthetic" if synthetic else "pilot" if pilots else "study",
+        "synthetic_data": synthetic,
         "pilot_sample_only": pilots,
         "participants_in_export": len({p["participant_code"] for p in parts}),
         "eligible_paired_participants": len(pairs),
@@ -305,7 +312,8 @@ def analyse(source: Path, destination: Path, stats=None, *, pilots=False):
         "team_state": {field: sum(int(row[field] or 0) for row in team_state)
                        for field in ("proposed_by_reviewer", "accepted", "rejected", "fixed", "fix_planned", "no_fix")},
         "interpretation": (
-            ("PILOT SAMPLE ONLY: illustrative output, not final study evidence. " if pilots else "")
+            ("SYNTHETIC DATA: demonstration only, not participant evidence. " if synthetic else
+             "PILOT SAMPLE ONLY: illustrative output, not final study evidence. " if pilots else "")
             + "Task tests are not a vulnerability audit. Team state is descriptive; fixed means a recorded mitigation. "
             + ("Legacy same-task attempts may reflect learning." if legacy_only else
                "Participant-selected different tasks confound mode comparisons; no mode-effect p-values are calculated for them.")
@@ -332,13 +340,16 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=Path, default=ROOT / "results")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--pilots", action="store_true", help="analyse pilot pairs only; include incomplete pilots with both task parts submitted")
+    parser.add_argument("--synthetic", action="store_true", help="label a SYN-prefixed mock dataset and report as fabricated")
     args = parser.parse_args()
-    output = args.output or ROOT / "results" / "analysis" / ("pilot" if args.pilots else "study")
+    if args.synthetic and args.pilots:
+        parser.error("--synthetic and --pilots cannot be combined")
+    output = args.output or ROOT / "results" / "analysis" / ("synthetic" if args.synthetic else "pilot" if args.pilots else "study")
     try:
         stats = import_module("scipy.stats")
     except ImportError:
         stats = None
-    summary = analyse(args.input, output, stats, pilots=args.pilots)
+    summary = analyse(args.input, output, stats, pilots=args.pilots, synthetic=args.synthetic)
     if stats is None and summary["task_design_counts"].get("same_task_legacy"):
         print("SciPy unavailable: legacy same-task pilots have descriptive results only.")
     print(f"Cohort: {summary['cohort']}")
