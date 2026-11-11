@@ -97,13 +97,12 @@ def import_preferences(payload):
 ''',
     "E": '''
 import secrets
-from fastapi import HTTPException
 
-def update_email(request, email, csrf_token):
-    expected = request.state.session["csrf_token"]
-    if not csrf_token or not secrets.compare_digest(csrf_token.encode("utf-8"), expected.encode("utf-8")):
-        raise HTTPException(status_code=403, detail="Invalid request token")
-    request.state.account["email"] = email
+def update_email(account, session, email, request_token):
+    expected = session["request_token"]
+    if not request_token or not secrets.compare_digest(request_token.encode("utf-8"), expected.encode("utf-8")):
+        raise PermissionError("Invalid request token")
+    account["email"] = email
     return {"email": email}
 ''',
 }
@@ -178,48 +177,30 @@ def test_object_reconstruction_is_rejected():
 ''',
     "E": '''
 import pytest
-from fastapi.testclient import TestClient
-from app.web import SESSION_COOKIE, open_session
+from app.account import update_email
 
 @pytest.mark.parametrize("token", [None, "", "wrong-token", "\\u00e9"])
-def test_missing_or_invalid_token_does_not_change_data(client, token):
-    before = client.get("/account").json()["email"]
-    fields = {"email": "forged@example.test"}
-    if token is not None:
-        fields["csrf_token"] = token
-    response = client.post("/account/email", data=fields, headers={"Origin": "https://other.test"})
-    assert response.status_code == 403
-    assert client.get("/account").json()["email"] == before
+def test_missing_or_invalid_token_does_not_change_data(token):
+    account = {"email": "alice@example.test"}
+    session = {"request_token": "alice-token"}
+    with pytest.raises(PermissionError):
+        update_email(account, session, "forged@example.test", token)
+    assert account["email"] == "alice@example.test"
 
-@pytest.mark.parametrize("username", ["alice", "bob"])
-def test_token_is_bound_to_its_session(client, username):
-    other_id = open_session(client.app, username)
-    other_token = client.app.state.sessions[other_id]["csrf_token"]
-    response = client.post("/account/email", data={"email": "forged@example.test", "csrf_token": other_token})
-    assert response.status_code == 403
-    assert client.get("/account").json()["email"] == "alice@example.test"
-    assert client.app.state.accounts["bob"]["email"] == "bob@example.test"
+def test_other_sessions_token_cannot_update_account():
+    account = {"email": "alice@example.test"}
+    session = {"request_token": "alice-token"}
+    other_session = {"request_token": "other-token"}
+    with pytest.raises(PermissionError):
+        update_email(account, session, "forged@example.test", other_session["request_token"])
+    assert account["email"] == "alice@example.test"
 
-def test_get_requests_cannot_update_an_account(client):
-    response = client.get("/account/email", params={"email": "forged@example.test"})
-    assert response.status_code == 405
-    assert client.get("/account").json()["email"] == "alice@example.test"
-
-def test_token_in_a_cookie_or_query_does_not_replace_the_form_token(client):
-    token = client.get("/account").json()["csrf_token"]
-    client.cookies.set("csrf_token", token)
-    response = client.post("/account/email", params={"csrf_token": token}, data={"email": "forged@example.test"})
-    assert response.status_code == 403
-    assert client.get("/account").json()["email"] == "alice@example.test"
-
-def test_sessions_and_app_instances_have_independent_state(client):
-    from app.web import create_app
-    fresh = create_app()
-    with TestClient(fresh, base_url="https://accounts.test") as other:
-        other.cookies.set(SESSION_COOKIE, open_session(fresh, "alice"))
-        token = other.get("/account").json()["csrf_token"]
-        assert other.post("/account/email", data={"email": "other@example.test", "csrf_token": token}).status_code == 200
-    assert client.get("/account").json()["email"] == "alice@example.test"
+def test_empty_session_token_cannot_authorize_an_update():
+    account = {"email": "alice@example.test"}
+    session = {"request_token": ""}
+    with pytest.raises(PermissionError):
+        update_email(account, session, "forged@example.test", "")
+    assert account["email"] == "alice@example.test"
 ''',
 }
 
@@ -264,8 +245,8 @@ def import_preferences(payload):
     return value
 ''',
     "E": '''
-def update_email(request, email, csrf_token):
-    request.state.account["email"] = email
+def update_email(account, session, email, request_token):
+    account["email"] = email
     return {"email": email}
 ''',
 }
