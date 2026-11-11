@@ -102,7 +102,7 @@ def update_email(account, session, email, request_token):
     expected = session["request_token"]
     if not request_token or not secrets.compare_digest(request_token.encode("utf-8"), expected.encode("utf-8")):
         raise PermissionError("Invalid request token")
-    account["email"] = email
+    account.email = email
     return {"email": email}
 ''',
 }
@@ -178,29 +178,30 @@ def test_object_reconstruction_is_rejected():
     "E": '''
 import pytest
 from app.account import update_email
+from app.models import Account
 
 @pytest.mark.parametrize("token", [None, "", "wrong-token", "\\u00e9"])
 def test_missing_or_invalid_token_does_not_change_data(token):
-    account = {"email": "alice@example.test"}
+    account = Account(email="alice@example.test")
     session = {"request_token": "alice-token"}
     with pytest.raises(PermissionError):
         update_email(account, session, "forged@example.test", token)
-    assert account["email"] == "alice@example.test"
+    assert account.email == "alice@example.test"
 
 def test_other_sessions_token_cannot_update_account():
-    account = {"email": "alice@example.test"}
+    account = Account(email="alice@example.test")
     session = {"request_token": "alice-token"}
     other_session = {"request_token": "other-token"}
     with pytest.raises(PermissionError):
         update_email(account, session, "forged@example.test", other_session["request_token"])
-    assert account["email"] == "alice@example.test"
+    assert account.email == "alice@example.test"
 
 def test_empty_session_token_cannot_authorize_an_update():
-    account = {"email": "alice@example.test"}
+    account = Account(email="alice@example.test")
     session = {"request_token": ""}
     with pytest.raises(PermissionError):
         update_email(account, session, "forged@example.test", "")
-    assert account["email"] == "alice@example.test"
+    assert account.email == "alice@example.test"
 ''',
 }
 
@@ -246,7 +247,7 @@ def import_preferences(payload):
 ''',
     "E": '''
 def update_email(account, session, email, request_token):
-    account["email"] = email
+    account.email = email
     return {"email": email}
 ''',
 }

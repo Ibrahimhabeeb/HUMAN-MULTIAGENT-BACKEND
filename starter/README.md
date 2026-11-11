@@ -16,9 +16,8 @@ the participant chooses a different task for Part 2, which uses the other mode. 
 parentheses in both task selectors; the editor and questionnaire keep the neutral task label.
 
 Each task has marked implementation stubs and public functional tests. C and D also include sample
-input. E supplies an isolated cookie-authenticated FastAPI harness; its tests use TestClient without
-starting another server. `uv sync` installs the existing FastAPI and HTTPX test dependencies.
-No task-specific UI is required.
+input. E uses an `Account` object and a server-side session dictionary; its tests call the update
+function directly, without HTTP or a separate server. No task-specific UI is required.
 
 Keep answer keys (expected risks, hidden tests) **out of these folders**: everything here is visible to the
 participant and to the AI.
