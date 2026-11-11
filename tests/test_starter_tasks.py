@@ -15,6 +15,8 @@ TARGETS = {
     "C": ("app/comments.py", {"render_comment"}),
     "D": ("app/preferences.py", {"export_preferences", "import_preferences"}),
     "E": ("app/account.py", {"update_email"}),
+    "F": ("app/documents.py", {"get_document"}),
+    "G": ("app/audit.py", {"record_recovery_attempt"}),
 }
 
 # Reference implementations and security checks stay outside participant-visible starter folders.
@@ -104,6 +106,18 @@ def update_email(account, session, email, request_token):
         raise PermissionError("Invalid request token")
     account.email = email
     return {"email": email}
+''',
+    "F": '''
+def get_document(documents, requester_id, document_id):
+    document = documents.get(document_id)
+    if document is None or document.owner_id != requester_id:
+        raise LookupError("Document unavailable")
+    return document
+''',
+    "G": '''
+def record_recovery_attempt(logger, account_id, recovery_token, succeeded):
+    outcome = "succeeded" if succeeded else "failed"
+    logger.info("Recovery %s for account %s", outcome, account_id)
 ''',
 }
 
@@ -203,6 +217,36 @@ def test_empty_session_token_cannot_authorize_an_update():
         update_email(account, session, "forged@example.test", "")
     assert account.email == "alice@example.test"
 ''',
+    "F": '''
+import pytest
+from app.documents import get_document
+from app.models import Document
+
+def test_other_owners_cannot_read_a_document():
+    document = Document(id=17, owner_id=2, title="Private", body="Do not disclose")
+    with pytest.raises(LookupError, match="Document unavailable"):
+        get_document({17: document}, requester_id=1, document_id=17)
+
+def test_missing_and_unowned_documents_have_the_same_result():
+    document = Document(id=17, owner_id=2, title="Private", body="Do not disclose")
+    with pytest.raises(LookupError, match="Document unavailable"):
+        get_document({17: document}, requester_id=1, document_id=17)
+    with pytest.raises(LookupError, match="Document unavailable"):
+        get_document({17: document}, requester_id=1, document_id=99)
+''',
+    "G": '''
+import logging
+from app.audit import record_recovery_attempt
+
+def test_secret_never_enters_log_records(caplog):
+    logger = logging.getLogger("recovery-security-check")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        record_recovery_attempt(logger, 42, "secret-for-success", True)
+        record_recovery_attempt(logger, 42, "secret-for-failure", False)
+    assert len(caplog.records) == 2
+    for record in caplog.records:
+        assert "secret-for-" not in repr(record.__dict__)
+''',
 }
 
 UNSAFE_REFERENCES = {
@@ -250,6 +294,18 @@ def update_email(account, session, email, request_token):
     account.email = email
     return {"email": email}
 ''',
+    "F": '''
+def get_document(documents, requester_id, document_id):
+    document = documents.get(document_id)
+    if document is None:
+        raise LookupError("Document unavailable")
+    return document
+''',
+    "G": '''
+def record_recovery_attempt(logger, account_id, recovery_token, succeeded):
+    outcome = "succeeded" if succeeded else "failed"
+    logger.info("Recovery %s for account %s with token %s", outcome, account_id, recovery_token)
+''',
 }
 
 
@@ -280,7 +336,7 @@ def test_unimplemented_tasks_run_without_collection_errors(client, enrol, task_i
     assert result["counts"]["error"] == 0
 
 
-@pytest.mark.parametrize("task_id", ["A", "C", "D", "E"])
+@pytest.mark.parametrize("task_id", ["A", "C", "D", "E", "F", "G"])
 @pytest.mark.parametrize("secure", [True, False])
 def test_new_task_contracts_with_safe_and_unsafe_implementations(tmp_path, task_id, secure):
     source = Path(get_settings().starter_dir) / f"task_{task_id}"

@@ -104,7 +104,7 @@ def test_done_requires_a_different_task_and_opens_the_other_mode(client, db, tea
     assert after_done["screen"] == "part_complete"
     assert after_done["task"] is None and after_done["parts"] == []
     assert after_done["needs_next_task"] is True
-    assert {task["id"] for task in after_done["available_tasks"]} == {"B", "C", "D", "E"}
+    assert {task["id"] for task in after_done["available_tasks"]} == {"B", "C", "D", "E", "F", "G"}
     assert client.get("/workspace/files").status_code == 409
     assert client.post("/study/mode", json={"mode": "single"}).status_code == 409
     assert client.post("/study/part-two", json={"task_id": "A"}).status_code == 409

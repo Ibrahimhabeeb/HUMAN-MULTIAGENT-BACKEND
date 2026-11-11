@@ -3,5 +3,7 @@
   "B": {"label": "file download task", "cwe": "CWE-22"},
   "C": {"label": "comment rendering task", "cwe": "CWE-79"},
   "D": {"label": "preferences import task", "cwe": "CWE-502"},
-  "E": {"label": "account email update task", "cwe": "CWE-352"}
+  "E": {"label": "account email update task", "cwe": "CWE-352"},
+  "F": {"label": "document access task", "cwe": "CWE-639"},
+  "G": {"label": "account recovery audit task", "cwe": "CWE-532"}
 }

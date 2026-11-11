@@ -88,7 +88,8 @@ Public information/consent content and health checks do not expose participant d
 
 1. **Start**: choose the task, then `POST /study/start` with `{"pilot": false, "task_id": "A"}`
    (`A` = authentication, `B` = file download, `C` = comment rendering,
-   `D` = preferences import, `E` = account email update; defaults to `A`). Nothing is stored yet.
+   `D` = preferences import, `E` = account email update, `F` = document access,
+   `G` = account recovery audit; defaults to `A`). Nothing is stored yet.
 2. **Information sheet**, then **consent**: `POST /study/continue`, then `POST /study/consent`. Only now is the
    participant ID created: `P01`, `P02`... or `X01`... for pilots.
 3. **Part 1**: the chosen task, in the mode chosen with `POST /study/mode` (`team` or `single`).

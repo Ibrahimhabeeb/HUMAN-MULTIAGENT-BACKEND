@@ -14,6 +14,8 @@ from services import approvals, content, study, workspace
     ("C", "app/comments.py", "D", "app/preferences.py"),
     ("D", "app/preferences.py", "E", "app/account.py"),
     ("E", "app/account.py", "C", "app/comments.py"),
+    ("F", "app/documents.py", "G", "app/audit.py"),
+    ("G", "app/audit.py", "F", "app/documents.py"),
 ])
 @pytest.mark.parametrize("first_mode", ["team", "single"])
 def test_different_tasks_have_independent_mode_attempts(client, db, enrol, task_id, source, second_task_id, second_source, first_mode):
@@ -69,11 +71,11 @@ def test_different_tasks_have_independent_mode_attempts(client, db, enrol, task_
     assert (snapshot_root / f"P01_{second_task_id}_{second_mode}" / "02_done" / second_source).read_text(encoding="utf-8") == "# second attempt"
 
 
-@pytest.mark.parametrize("task_id", ["A", "B", "C", "D", "E"])
+@pytest.mark.parametrize("task_id", ["A", "B", "C", "D", "E", "F", "G"])
 def test_task_selection_before_consent_stores_nothing(client, db, study_dirs, task_id):
     initial = client.get("/study/state").json()
-    assert initial["available_tasks"] == [workspace.task_info(task) for task in ["A", "B", "C", "D", "E"]]
-    assert [task["cwe"] for task in initial["available_tasks"]] == ["CWE-89", "CWE-22", "CWE-79", "CWE-502", "CWE-352"]
+    assert initial["available_tasks"] == [workspace.task_info(task) for task in ["A", "B", "C", "D", "E", "F", "G"]]
+    assert [task["cwe"] for task in initial["available_tasks"]] == ["CWE-89", "CWE-22", "CWE-79", "CWE-502", "CWE-352", "CWE-639", "CWE-532"]
     state = client.post("/study/start", json={"pilot": True, "task_id": task_id}).json()
     assert state["task"] == {"id": task_id, "label": workspace.task_label(task_id)}
     assert client.get("/study/state").json()["task"] == state["task"]
@@ -84,7 +86,7 @@ def test_task_selection_before_consent_stores_nothing(client, db, study_dirs, ta
     assert client.post("/study/consent", json={"consent_version": content.load("consent")[0]}).json()["task"]["id"] == task_id
 
 
-@pytest.mark.parametrize("task_id", ["F", "../task_A", "", None])
+@pytest.mark.parametrize("task_id", ["H", "../task_A", "", None])
 def test_unknown_tasks_are_rejected_without_creating_a_session(client, db, task_id):
     assert client.post("/study/start", json={"task_id": task_id}).status_code == 422
     assert client.get("/study/state").json()["screen"] == "start"

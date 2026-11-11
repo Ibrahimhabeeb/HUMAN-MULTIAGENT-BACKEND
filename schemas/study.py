@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 Mode = Literal["team", "single"]
-TaskId = Literal["A", "B", "C", "D", "E"]
+TaskId = Literal["A", "B", "C", "D", "E", "F", "G"]
 Screen = Literal["start", "information", "consent", "ide", "part_complete", "questionnaire", "thank_you"]
 
 

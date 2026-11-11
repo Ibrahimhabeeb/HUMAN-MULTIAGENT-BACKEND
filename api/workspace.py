@@ -4,15 +4,20 @@ from fastapi import APIRouter, Body, HTTPException
 
 from api.dependencies import Db
 from api.errors import run
+from schemas.completion import CompletionRequest, CompletionResult
 from schemas.linting import LintRequest, LintResult
 from schemas.runner import RunResult
 from schemas.security_state import Category, HumanCategory, SecurityState
 from schemas.workspace import FileWrite, FolderCreate, Notes, NotesWrite, RenameRequest
-from services import linting, runner, state_service, study, workspace
+from services import completion, linting, runner, state_service, study, workspace
 
 # The session header selects the participant's open part; participant ids are not accepted in URLs.
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
+
+@router.post("/completions")
+def python_completions(db: Db, body: CompletionRequest) -> CompletionResult:
+    return run(lambda: completion.suggest(study.current_workspace(db), body.path, body.content, body.line, body.column))
 
 
 @router.post("/lint")
