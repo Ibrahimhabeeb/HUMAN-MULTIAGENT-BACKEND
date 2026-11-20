@@ -60,6 +60,20 @@ uv run ruff check .
 The tests never call the AI model and never touch the study database: each test uses its own throwaway SQLite
 database. The PostgreSQL-only analysis views are not covered by them.
 
+## Continuous integration
+
+`.github/workflows/backend-ci.yml` runs on pull requests targeting `main`, pushes to `main`, and manual runs
+from GitHub's Actions tab. Two independent checks use Python 3.13 and the dependencies recorded in `uv.lock`:
+
+- **Backend lint** runs `ruff check .`.
+- **Backend tests** runs the existing `pytest` suite on Linux, with temporary SQLite databases and mocked AI calls.
+
+No model credentials or deployment credentials are needed. These checks cover the backend application tests;
+they do not deploy the application or validate the PostgreSQL-only analysis views.
+
+After the workflow has run on GitHub, add **Backend lint** and **Backend tests** to the required status checks
+in the `main` branch ruleset. Future pull requests must then pass both checks before they can be merged.
+
 ## Database
 
 With PostgreSQL, the app brings the database up to date itself when it starts, using the Alembic migrations in
