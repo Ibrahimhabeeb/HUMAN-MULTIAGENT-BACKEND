@@ -1,11 +1,14 @@
+import ast
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import get_args
+from threading import BoundedSemaphore
+from typing import Literal, get_args
 
 from sqlalchemy.orm import Session
 
@@ -17,13 +20,14 @@ from services.events import log_event
 
 MAX_OUTPUT_CHARS = 4000
 MAX_DETAILS_CHARS = 3000
-_SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^LLM_|^OPENAI|^ANTHROPIC|^PYTEST", re.IGNORECASE)
+_SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^DATABASE_URL$|^LLM_|^OPENAI|^ANTHROPIC|^PYTEST", re.IGNORECASE)
 _EXCEPTION = re.compile(r"^\s*(?:E\s+)?(?P<type>[\w.]+(?:Error|Exception)):\s*(?P<message>[^\n]*)", re.MULTILINE)
 _SYNTAX_LOCATION = re.compile(r'^\s*(?:E\s+)?File "(?P<file>[^"\n]+)", line (?P<line>\d+)', re.MULTILINE)
 _FRAME_LOCATION = re.compile(r"^(?P<file>[^\n]+\.py):(?P<line>\d+): in ", re.MULTILINE)
 _PROBLEMS = {"failure": "failed", "error": "error", "skipped": "skipped"}
 # The run's own pytest settings, so the backend's (pyproject.toml) never apply to a workspace.
 _CONFIG = "[pytest]\njunit_family = xunit1\n"
+_admission = BoundedSemaphore(5)
 # A Ctrl+C sent to the server's console (uvicorn's reload sends one on Windows) must not stop the tests.
 _OWN_PROCESS_GROUP: dict = (
     {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
@@ -80,7 +84,28 @@ def _case(element: ET.Element, folder: Path) -> CaseResult:
 
 
 def _pytest(folder: Path) -> tuple[int | None, list[CaseResult], str]:
+    if not _admission.acquire(blocking=False):
+        return 3, [], "The test service is busy. Please try running the tests again shortly."
+    try:
+        return _execute_pytest(folder)
+    finally:
+        _admission.release()
+
+
+def _execute_pytest(folder: Path) -> tuple[int | None, list[CaseResult], str]:
     # Returns pytest's exit code (None if it timed out), the result of each test, and the end of its output.
+    settings = get_settings()
+    if settings.test_runner_url:
+        from services import sandbox
+
+        try:
+            result = sandbox.run(folder)
+            cases = [_case(element, Path("/workspace")) for element in ET.fromstring(result["report"]).iter("testcase")] if result["report"] else []
+            return result["code"], cases, result["output"][-MAX_OUTPUT_CHARS:]
+        except (*sandbox.UNAVAILABLE, ET.ParseError):
+            return 3, [], "The isolated test runner is unavailable. Please try running the tests again."
+    if settings.app_env == "production":
+        return 3, [], "Tests require the isolated production runner. No code was executed."
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
         config, report = Path(scratch) / "pytest.ini", Path(scratch) / "results.xml"
         config.write_text(_CONFIG, encoding="utf-8")
@@ -120,34 +145,61 @@ def _summary(code: int | None, counts: dict[str, int]) -> tuple[str, str]:
     return ("passed" if code == 0 else "failed"), ", ".join(parts) or "No tests ran."
 
 
-def _record_results(ws: Workspace, cases: list[CaseResult]) -> None:
-    # Each security test in the state keeps its result from this run. The event log keeps every run's results.
-    state = state_service.load(ws)
-    for test in state.tests:
-        results = [case for case in cases if case.file == test.path]
-        passed = sum(case.outcome == "passed" for case in results)
-        test.passed = passed == len(results) if results else None
-        test.result = f"{passed} of {len(results)} tests passed" if results else "No result in the latest run"
-    state_service.save(ws, state)
+def test_functions(folder: Path) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    """The test functions under tests/ as (file, name), without running anything; and each test file that can't be
+    read, with why."""
+    functions, unreadable = [], {}
+    for path in sorted((folder / "tests").rglob("test_*.py")):
+        file = path.relative_to(folder).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError, OSError) as error:
+            unreadable[file] = f"{type(error).__name__} in {file}: {error}"
+            continue
+        classes = [node.body for node in tree.body if isinstance(node, ast.ClassDef) and node.name.startswith("Test")]
+        for node in [*tree.body, *(item for body in classes for item in body)]:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                functions.append((file, node.name))
+    return functions, unreadable
 
 
-def run_tests(db: Session, ws: Workspace) -> dict:
-    # Clicking Run tests is the human's approval to run them.
-    snapshot = workspace.snapshot(ws, "tests")
-    code, cases, output = _pytest(workspace.folder(ws).resolve())
+def _record_results(ws: Workspace, cases: list[CaseResult], failure: str | None) -> None:
+    # Each unit test keeps the outcome of this run, replacing the one before (in both modes; single mode doesn't show
+    # them). The event log keeps every run's summary.
+    state_service.lock(ws)
+    state_service.record_tests(ws, *test_functions(workspace.folder(ws)), cases=cases, failure=failure)
+
+
+Trigger = Literal["button", "review", "chat", "finish"]
+
+
+def run_tests(db: Session, ws: Workspace, trigger: Trigger = "button", *, saved_snapshot: Path | None = None) -> dict:
+    # Clicking Run tests is the human's approval to run them. The Test/Verifier also runs them on a review and when
+    # the part is finished; in single mode those runs are only logged, not shown.
+    snapshot = saved_snapshot or workspace.snapshot(ws, "tests")
+    # A run always uses the recorded revision, even if an editor save arrives during execution.
+    if get_settings().test_runner_url:
+        # The broker copies these inputs into a disposable container; it cannot modify this snapshot.
+        code, cases, output = _pytest(snapshot.resolve())
+    else:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
+            execution = Path(scratch) / "workspace"
+            shutil.copytree(snapshot, execution)
+            code, cases, output = _pytest(execution.resolve())
     counts = {outcome: sum(case.outcome == outcome for case in cases) for outcome in get_args(Outcome)}
     status, message = _summary(code, counts)
 
-    if ws.mode == "team":
-        db.refresh(ws)  # the state may have changed while the tests ran
-        _record_results(ws, cases)
+    db.refresh(ws)  # the state may have changed while the tests ran
+    _record_results(ws, cases, message if not cases and status in ("error", "timed_out") else None)
     log_event(
         db,
         ws.participant_code,
         "tests_run",
+        actor="human" if trigger == "button" else "verifier" if ws.mode == "team" else "system",
         mode=ws.mode,
         detail={
             "status": status,
+            "trigger": trigger,
             "counts": counts,
             "snapshot": snapshot.name,
             "tests": [{"file": c.file, "name": c.name, "outcome": c.outcome} for c in cases],

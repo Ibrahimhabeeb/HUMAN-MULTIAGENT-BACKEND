@@ -8,7 +8,7 @@ KIND = "vulnerability_follow_up"
 
 
 def queue_missing(db: Session, ws: Workspace) -> None:
-    """Persist one fix/test follow-up per approved finding, including older sessions."""
+    """Queue one reviewer response only after the developer chooses who will write the fix."""
     if ws.mode != "team" or ws.done_at is not None:
         return
     # Serialize reconciliation with approvals and other tabs, so refresh never queues duplicate work.
@@ -17,47 +17,37 @@ def queue_missing(db: Session, ws: Workspace) -> None:
     if ws.done_at is not None:
         return
     state = state_service.load(ws)
-    existing = {
-        (m.data.get("vulnerability_id"), m.data.get("agent"))
+    queued = {
+        m.data.get("vulnerability_id")
         for m in db.scalars(select(Message).where(Message.workspace_id == ws.id))
-        if m.data.get("kind") == KIND
+        if m.data.get("kind") == KIND and m.data.get("agent") == "reviewer"
+        and m.data.get("fix_choice") in {"reviewer", "developer"}
     }
-    pending = list(db.scalars(select(Approval).where(Approval.workspace_id == ws.id, Approval.status == "pending")))
+    fixed = {m.vulnerability_id for m in state.mitigations}
     for vulnerability in state.vulnerabilities:
-        if vulnerability.status != "open":
+        if vulnerability.status != "accepted" or vulnerability.id in fixed | queued:
             continue
-        fixed = any(m.vulnerability_id == vulnerability.id for m in state.mitigations)
-        tested = any(vulnerability.id in t.vulnerability_ids for t in state.tests)
-        for agent, covered, action, key in (
-            ("reviewer", fixed, "suggest_fix", "vulnerability"),
-            ("verifier", tested, "propose_test", "vulnerability_ids"),
-        ):
-            if covered or (vulnerability.id, agent) in existing:
-                continue
-            if any(
-                a.action_type == action
-                and (
-                    a.proposal.get(key) == vulnerability.id if key == "vulnerability"
-                    else vulnerability.id in (a.proposal.get(key) or [])
-                )
-                for a in pending
-            ):
-                continue
-            db.add(
-                Message(
-                    participant_code=ws.participant_code,
-                    workspace_id=ws.id,
-                    mode=ws.mode,
-                    thread="team",
-                    role="system",
-                    content=f"Preparing {'fix suggestions' if agent == 'reviewer' else 'security tests'} for {vulnerability.id}.",
-                    data={
-                        "kind": KIND,
-                        "agent": agent,
-                        "vulnerability_id": vulnerability.id,
-                        "approval_id": vulnerability.approval_id,
-                        "status": "queued",
-                    },
-                )
+        approval = db.get(Approval, vulnerability.approval_id) if vulnerability.approval_id else None
+        choice = (approval.result or {}).get("fix_choice") if approval and approval.workspace_id == ws.id else None
+        if choice not in {"reviewer", "developer"}:
+            continue
+        db.add(
+            Message(
+                participant_code=ws.participant_code,
+                workspace_id=ws.id,
+                mode=ws.mode,
+                thread="team",
+                role="system",
+                content=(f"Writing the fix for {vulnerability.id}." if choice == "reviewer"
+                         else f"Preparing fix guidance for {vulnerability.id}."),
+                data={
+                    "kind": KIND,
+                    "agent": "reviewer",
+                    "vulnerability_id": vulnerability.id,
+                    "approval_id": vulnerability.approval_id,
+                    "fix_choice": choice,
+                    "status": "queued",
+                },
             )
+        )
     db.flush()

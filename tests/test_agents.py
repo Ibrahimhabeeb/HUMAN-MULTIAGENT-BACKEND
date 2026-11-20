@@ -1,6 +1,7 @@
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from pathlib import Path
 from threading import Event as ThreadEvent
 
 import pytest
@@ -8,17 +9,26 @@ import pytest
 from agents import runtime
 from agents.roles import ASSISTANT_PROMPT, REVIEW_MESSAGE, SPECIALISTS, team_prompt
 from agents.runtime import RouteDecision
-from agents.team import NO_VULNERABILITIES_NOTICE
 from config import get_settings
 from models import Approval, Event, Message
+from schemas.security_state import RiskCreate
 from services import approvals, state_service, study
 
 ROLE_OF_PROMPT = {team_prompt(role): role for role in SPECIALISTS} | {ASSISTANT_PROMPT: "assistant"}
 RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
 VULNERABILITY = {"description": "Query built from user input", "severity": "High", "file": "app/auth.py", "line": 12}
 RECORDED = "Recorded. It waits for the developer's approval."
+WRITTEN = "Recorded. It goes straight into the code and into the security state as a mitigation."
+FIND = '    # TODO: return (True, message) for valid credentials, otherwise (False, message).\n'
 FIX = {
     "vulnerability": "V1",
+    "file": "app/auth.py",
+    "find": FIND,
+    "replace": '    row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()\n',
+    "why": "Placeholders stop user input changing the SQL.",
+}
+SUGGESTION = {
+    "vulnerability": "SQL injection",
     "file": "app/auth.py",
     "location": "login(), the SELECT query",
     "code": 'cur.execute("SELECT * FROM users WHERE username = ?", (username,))',
@@ -26,12 +36,20 @@ FIX = {
 }
 
 
+def seed_risk(db):
+    ws = study.current_workspace(db)
+    state = state_service.load(ws)
+    state_service.add_item(state, "risks", RiskCreate.model_validate(RISK), "threat_modeller")
+    state_service.save(ws, state)
+    db.commit()
+
+
 class FakeModel:
     # Stands in for the LLM: a test scripts what each agent does with its tools, and every call is recorded.
     def __init__(self):
         self.calls = []
         self.scripts = {}
-        self.route_to = ("reviewer", "you asked about your code")
+        self.route_to = ("reviewer", "you asked about your code")  # optionally a third item: review requested
 
     def run_agent(self, system_prompt, tools, messages):
         role = ROLE_OF_PROMPT[system_prompt]
@@ -40,10 +58,16 @@ class FakeModel:
         script = self.scripts.get(role)
         return script(tools) if script else f"{role} reply"
 
+    def run_agent_stream(self, system_prompt, tools, messages):
+        reply = self.run_agent(system_prompt, tools, messages)
+        midpoint = max(1, len(reply) // 2)
+        yield reply[:midpoint]
+        yield reply[midpoint:]
+
     def route(self, system_prompt, messages):
         self.calls.append({"role": "facilitator", "prompt": system_prompt, "messages": [m.content for m in messages]})
-        agent, reason = self.route_to
-        return RouteDecision(agent=agent, reason=reason)
+        agent, reason, *review = self.route_to
+        return RouteDecision(agent=agent, reason=reason, review=bool(review and review[0]))
 
     def roles(self):
         return [c["role"] for c in self.calls]
@@ -56,6 +80,7 @@ class FakeModel:
 def model(monkeypatch):
     fake = FakeModel()
     monkeypatch.setattr(runtime, "run_agent", fake.run_agent)
+    monkeypatch.setattr(runtime, "run_agent_stream", fake.run_agent_stream)
     monkeypatch.setattr(runtime, "route", fake.route)
     return fake
 
@@ -66,6 +91,20 @@ def say(client, content, thread="team"):
 
 def next_reply(client):
     return client.post("/chat/next")
+
+
+def review(client):
+    # A team review, as the frontend does it: the unit tests, then the Code Reviewer's reply in a second request.
+    tested = client.post("/chat/review").json()
+    assert tested["next"] == "reviewer"
+    reviewed = next_reply(client).json()
+    return {**reviewed, "messages": [*tested["messages"], *reviewed["messages"]]}
+
+
+def stream_say(client, content, thread="team"):
+    response = client.post(f"/chat/{thread}/stream", json={"content": content})
+    assert response.status_code == 200
+    return [json.loads(line) for line in response.text.splitlines()]
 
 
 def decide(client, approval_id, decision="approve"):
@@ -92,7 +131,43 @@ def test_messages_must_have_content(client, team, model):
     assert model.calls == []
 
 
-@pytest.mark.parametrize("task_id, source", [("A", "app/auth.py"), ("B", "app/storage.py")])
+def test_team_chat_streams_the_planner_then_the_threat_modeller_and_persists_only_completed_messages(client, team, model):
+    events = stream_say(client, "Please guide me through the task")
+    assert [event["type"] for event in events] == [
+        "message", "agent_start", "delta", "delta", "agent_complete",
+        "agent_start", "delta", "delta", "agent_complete", "done",
+    ]
+    assert [event["agent"] for event in events if event["type"] == "agent_start"] == ["planner", "threat_modeller"]
+    assert "".join(event["content"] for event in events if event["type"] == "delta" and event["agent"] == "planner") == "planner reply"
+    assert "".join(event["content"] for event in events if event["type"] == "delta" and event["agent"] == "threat_modeller") == "threat_modeller reply"
+    assert [message["content"] for message in client.get("/chat/team").json()] == [
+        "Please guide me through the task", "planner reply", "threat_modeller reply",
+    ]
+
+
+def test_threat_modeller_stores_one_workspace_scoped_illustrative_risk_example(client, team, model):
+    model.scripts["threat_modeller"] = lambda tools: """Untrusted input reaches this function.
+<risk-example path="app/auth.py">
+```python
+def login(username: str, password: str):
+    return conn.execute(f\"SELECT * FROM users WHERE username = '{username}'\")
+```
+</risk-example>"""
+
+    result = say(client, "Help me understand the task").json()
+    threat = result["messages"][-1]
+    assert threat["content"] == "Untrusted input reaches this function."
+    assert threat["data"]["threat_example"] == {
+        "path": "app/auth.py",
+        "language": "python",
+        "code": "def login(username: str, password: str):\n    return conn.execute(f\"SELECT * FROM users WHERE username = '{username}'\")",
+    }
+
+
+@pytest.mark.parametrize("task_id, source", [
+    ("A", "app/auth.py"), ("B", "app/storage.py"), ("C", "app/comments.py"),
+    ("D", "app/preferences.py"), ("E", "app/account.py"),
+])
 def test_the_first_message_runs_the_planner_then_the_threat_modeller_without_a_handoff(client, db, enrol, model, task_id, source):
     enrol(task_id=task_id)
     task = client.get("/workspace/files/README.md").json()["content"]
@@ -117,7 +192,11 @@ def test_the_first_message_runs_the_planner_then_the_threat_modeller_without_a_h
         assert f"Task description (README.md):\n{task}" in sent
         assert source in sent
         assert "The handoff is automatic; no developer confirmation is needed." in sent
-    assert "Give the implementation steps now." in model.last("planner")["messages"][-1]
+    assert "without restating the task description." in model.last("planner")["messages"][-1]
+    assert f"### {source}" in model.last("planner")["messages"][-1]  # the plan is built on the real code
+    assert "### README.md" not in model.last("planner")["messages"][-1]
+    assert "short orientation" in team_prompt("planner")
+    assert 'Do not use a fixed "Where / What / Using / Done when" template.' in team_prompt("planner")
     assert "Analyse potential threats in this task now" in model.last("threat_modeller")["messages"][-1]
     assert client.get("/approvals").json() == []  # there is no approval for talking or handing off
     assert next_reply(client).status_code == 409  # nobody else is waiting
@@ -134,7 +213,7 @@ def test_later_messages_are_routed_to_one_agent(client, db, team, model):
     assert "### app/auth.py" in sent[-1]  # the Code Reviewer always sees the current code
     assert "[Planner] planner reply" in sent  # and the conversation so far, with who said what
     routed = db.query(Event).filter(Event.type == "message_routed").one()
-    assert routed.detail == {"agent": "reviewer", "reason": "you asked about your code"}
+    assert routed.detail == {"agent": "reviewer", "reason": "you asked about your code", "review": False}
 
 
 def test_suggested_risks_go_straight_into_the_state_and_assumptions_wait(client, team, model):
@@ -183,21 +262,21 @@ def test_suggested_risks_go_straight_into_the_state_and_assumptions_wait(client,
 
 
 @pytest.mark.parametrize("with_risks", [False, True])
-def test_the_code_reviewer_records_findings_without_risk_links(client, team, model, with_risks):
+def test_the_code_reviewer_records_findings_without_risk_links(client, db, team, model, with_risks):
     if with_risks:
-        client.post("/workspace/state/risks", json=RISK)
+        seed_risk(db)
     replies = []
 
     def reviewer(tools):
         assert "risk_id" not in tools["propose_vulnerability"].args
-        replies.append(tools["mark_resolved"].invoke({"item_id": "V9", "reason": "It is fixed now"}))
+        replies.append(tools["mark_resolved"].invoke({"item_id": "M9", "reason": "It is fixed now"}))
         replies.append(tools["propose_vulnerability"].invoke(VULNERABILITY))
         return "One vulnerability."
 
     model.scripts["reviewer"] = reviewer
-    reply = client.post("/chat/review").json()
+    reply = review(client)
     assert replies == [
-        "Not recorded: V9 is not in the security state.",
+        "Not recorded: M9 is not a mitigation in the security state (mitigations: none yet).",
         RECORDED,
     ]
     (approval,) = reply["approvals"]
@@ -210,13 +289,13 @@ def test_the_code_reviewer_records_findings_without_risk_links(client, team, mod
 
     sent = model.last("reviewer")["messages"][-1]
     assert "The risks in the security state:" not in sent
-    assert "The approved vulnerabilities:\n(none yet)" in sent
+    assert "The vulnerabilities in the security state:\n(none yet)" in sent
 
 
 @pytest.mark.parametrize("with_risks", [False, True])
-def test_a_clean_review_is_saved_without_creating_proposals(client, team, model, with_risks):
+def test_a_clean_review_is_saved_without_creating_proposals(client, db, team, model, with_risks):
     if with_risks:
-        client.post("/workspace/state/risks", json=RISK)
+        seed_risk(db)
     code = (
         "import bcrypt\n\n"
         "def hash_password(password):\n"
@@ -231,10 +310,10 @@ def test_a_clean_review_is_saved_without_creating_proposals(client, team, model,
         return "No vulnerabilities found."
 
     model.scripts["reviewer"] = reviewer
-    reviewed = client.post("/chat/review").json()
+    reviewed = review(client)
     assert reviewed["messages"][-1]["content"] == "No vulnerabilities found."
     assert reviewed["approvals"] == []
-    assert reviewed["next"] is None  # tests start after a vulnerability is approved, not before
+    assert reviewed["next"] is None  # the unit tests ran, then the Code Reviewer answered
 
     follow_up = say(client, "Please check my code again").json()
     assert follow_up["messages"][-1]["content"] == "No vulnerabilities found."
@@ -246,35 +325,56 @@ def test_a_clean_review_is_saved_without_creating_proposals(client, team, model,
     assert client.get("/workspace/files/app/auth.py").json()["content"] == code
 
 
-def test_fixes_come_only_after_the_developer_approves_the_vulnerability(client, team, model):
-    replies = []
-
+def test_fixes_are_written_only_after_the_developer_accepts_the_vulnerability(client, team, model):
     def reviewer(tools):
-        replies.append(tools["propose_vulnerability"].invoke(VULNERABILITY))
-        replies.append(tools["suggest_fix"].invoke(FIX))  # there is no V1 until the developer approves it
+        assert "write_fix" not in tools  # a review only finds vulnerabilities
+        tools["propose_vulnerability"].invoke(VULNERABILITY)
         return "One vulnerability."
 
     model.scripts["reviewer"] = reviewer
-    (vulnerability,) = client.post("/chat/review").json()["approvals"]
-    assert replies[1].startswith("Not recorded: V1 is not an approved vulnerability (approved: none yet).")
-    decide(client, vulnerability["id"])
+    (vulnerability,) = review(client)["approvals"]
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    assert decide(client, vulnerability["id"]).status_code == 200
+    assert finding_jobs(client) == []  # accepting the finding does not choose who writes its fix
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+    assert client.post(f"/approvals/{vulnerability['id']}/fix-choice", json={"choice": "reviewer"}).status_code == 200
+
+    replies = []
 
     def fixes(tools):
-        replies.append(tools["suggest_fix"].invoke(FIX))
-        replies.append(tools["suggest_fix"].invoke({**FIX, "code": "another fix"}))
-        return "A fix for V1."
+        replies.append(tools["write_fix"].invoke({**FIX, "vulnerability": "V2"}))
+        replies.append(tools["write_fix"].invoke({**FIX, "find": "not in the file"}))
+        replies.append(tools["write_fix"].invoke({**FIX, "file": "app/nope.py"}))
+        replies.append(tools["write_fix"].invoke(FIX))
+        replies.append(tools["write_fix"].invoke(FIX))
+        return "I replaced the query."
 
     model.scripts["reviewer"] = fixes
-    (fix,) = say(client, "Please suggest the fixes").json()["approvals"]
-    assert replies[2:] == [RECORDED, "Not recorded: you already suggested a fix for V1 in this reply."]
+    (job,) = finding_jobs(client)
+    (fix,) = client.post(f"/chat/follow-ups/{job['id']}").json()["approvals"]
+    assert replies == [
+        "Not recorded: this follow-up is only for V1.",
+        (
+            "Not recorded: find must match the code in app/auth.py exactly once, but it matched 0 times. Copy it exactly "
+            "from the file, without the line numbers, with enough of the surrounding lines to be unique."
+        ),
+        "Not recorded: there is no file called app/nope.py. Use list_files to see the files.",
+        WRITTEN,
+        "Not recorded: you already wrote a fix for V1 in this reply.",
+    ]
+    assert (fix["action_type"], fix["status"]) == ("write_fix", "written")
     sent = model.last("reviewer")["messages"][-1]
-    assert "- V1 (High, app/auth.py:12, open) [no mitigation yet]: Query built from user input" in sent
+    assert "- V1 (High, app/auth.py:12) [accepted, no fix yet]: Query built from user input" in sent
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == original.replace(FIND, FIX["replace"])
 
-    say(client, "Any other fixes?")
-    assert replies[4] == f"Not recorded: a fix for V1 is already waiting for the developer's decision (proposal #{fix['id']})."
-    decide(client, fix["id"])  # it becomes M1; the developer types the code themselves
-    say(client, "Any other fixes?")
-    assert replies[6] == "Not recorded: V1 already has a mitigation (M1)."
+    # The Code Reviewer's next look sees the fix is in, and a planned one isn't mistaken for fixed code.
+    model.scripts.clear()
+    client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "line": 30})
+    client.post("/workspace/state/mitigations", json={"vulnerability_id": "V2", "description": "Use placeholders"})
+    say(client, "Are the fixes in?")
+    sent = model.last("reviewer")["messages"][-1]
+    assert "- V1 (High, app/auth.py:12) [accepted; fix M1 implemented]" in sent
+    assert "- V2 (High, app/auth.py:30) [accepted; fix M2 planned, not yet in the code]" in sent
 
 
 def test_the_code_reviewer_proposes_each_vulnerability_once(client, team, model):
@@ -288,7 +388,7 @@ def test_the_code_reviewer_proposes_each_vulnerability_once(client, team, model)
         return "Two vulnerabilities."
 
     model.scripts["reviewer"] = reviewer
-    waiting, rejected = client.post("/chat/review").json()["approvals"]
+    waiting, rejected = review(client)["approvals"]
     assert replies[2] == "Not recorded: you already proposed this vulnerability in this reply."
     decide(client, rejected["id"], "reject")
 
@@ -296,7 +396,7 @@ def test_the_code_reviewer_proposes_each_vulnerability_once(client, team, model)
     assert say(client, "Did you find anything else?").json()["approvals"] == []
     assert replies[:2] == [
         f"Not recorded: this is the same as proposal #{waiting['id']}, which is waiting for the developer's decision.",
-        f"Not recorded: the developer rejected this vulnerability (proposal #{rejected['id']}). Don't propose it again.",
+        "Not recorded: the developer rejected this vulnerability (V1). Don't propose it again.",  # kept as rejected
     ]
     sent = model.last("reviewer")["messages"][-1]
     assert (
@@ -308,58 +408,35 @@ def test_the_code_reviewer_proposes_each_vulnerability_once(client, team, model)
     decide(client, waiting["id"])
     replies.clear()
     say(client, "And now?")
-    assert replies[0] == "Not recorded: this is the same as V1, which is already in the security state."
+    assert replies[0] == "Not recorded: this is the same as V2, which is already in the security state."
 
 
-def test_the_verifier_can_only_test_approved_vulnerabilities_once(client, team, model):
-    client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
-    replies = []
-
-    def verifier(tools):
-        test = {"path": "tests/test_security_login.py", "content": "def test_x():\n    assert True\n"}
-        replies.append(tools["propose_test"].invoke({**test, "vulnerability_ids": ["V1", "V7"]}))
-        replies.append(tools["propose_test"].invoke({**test, "vulnerability_ids": ["V1"]}))
-        replies.append(tools["propose_test"].invoke({**test, "vulnerability_ids": ["V1"]}))
-        return "One test for V1."
-
-    model.scripts["verifier"] = verifier
-    say(client, "I need to build the login")
-    model.route_to = ("verifier", "you asked for security tests")
-    (test,) = say(client, "Please write security tests").json()["approvals"]
-    assert replies == [
-        "Not recorded: these are not approved vulnerabilities: V7 (approved: V1).",
-        RECORDED,
-        "Not recorded: you already proposed tests/test_security_login.py in this reply.",
-    ]
-    assert test["proposal"]["vulnerability_ids"] == ["V1"]
-
-    assert say(client, "Please write security tests").json()["approvals"] == []  # still waiting for a decision
-    assert replies[4] == (
-        f"Not recorded: tests/test_security_login.py is already waiting for the developer's decision (proposal #{test['id']})."
-    )
-
-
-def test_review_runs_only_the_code_reviewer_until_findings_are_approved(client, team, model, study_dirs):
+def test_review_runs_the_unit_tests_then_the_code_reviewer(client, db, team, model, study_dirs):
     client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "cwe": "CWE-89"})
 
     def reviewer(tools):
         tools["propose_vulnerability"].invoke({**VULNERABILITY, "line": 30, "description": "Password stored in plain text"})
-        tools["suggest_fix"].invoke(FIX)  # for the approved V1
-        return "One vulnerability, and a fix for V1."
+        return "One vulnerability."
 
-    def verifier(tools):
-        test = {"path": "tests/test_security_login.py", "content": "def test_x():\n    assert True\n"}
-        tools["propose_test"].invoke({**test, "vulnerability_ids": ["V1"]})
-        return "One test for V1."
-
-    model.scripts.update(reviewer=reviewer, verifier=verifier)
-    first = client.post("/chat/review").json()
-    asked, reviewed = first["messages"]
-    assert (asked["content"], asked["data"]["route"]) == (REVIEW_MESSAGE, ["reviewer"])
+    model.scripts["reviewer"] = reviewer
+    first = review(client)
+    asked, tested, reviewed = first["messages"]
+    assert (asked["content"], asked["data"]["route"]) == (REVIEW_MESSAGE, ["verifier", "reviewer"])
+    assert (tested["role"], tested["data"]["agent"], tested["data"]["reply_to"]) == ("agent", "verifier", asked["id"])
+    assert tested["content"].startswith("I ran the unit tests: 3 failed.")  # the starter functions are unfinished
+    assert "- failed: `test_wrong_password_is_refused` (tests/test_functional.py)" in tested["content"]
     assert (reviewed["data"]["agent"], first["next"]) == ("reviewer", None)
-    vulnerability, fix = first["approvals"]
-    assert (vulnerability["action_type"], fix["proposal"]["vulnerability"]) == ("propose_vulnerability", "V1")
-    assert model.last("reviewer")["messages"][-1].startswith(f"{REVIEW_MESSAGE}\n\n### ")
+    assert model.roles() == ["reviewer"]  # the Test/Verifier runs the tests without the model
+    (run,) = [e for e in events(db) if e.type == "tests_run"]
+    assert (run.actor, run.detail["trigger"]) == ("verifier", "review")
+    assert {t["status"] for t in client.get("/workspace/state").json()["tests"]} == {"failed"}
+
+    (vulnerability,) = first["approvals"]
+    assert vulnerability["action_type"] == "propose_vulnerability"
+    sent = model.last("reviewer")["messages"][-1]
+    assert sent.startswith(f"{REVIEW_MESSAGE}\n\n### ")
+    assert "- V1 (High, CWE-89, app/auth.py:12) [accepted, no fix yet]: Query built from user input" in sent
+    assert "- T2 test_wrong_password_is_refused (tests/test_functional.py): failed: " in sent  # results from the run
     assert model.last("reviewer")["tools"] == [
         "get_security_state",
         "list_files",
@@ -367,37 +444,68 @@ def test_review_runs_only_the_code_reviewer_until_findings_are_approved(client, 
         "propose_vulnerability",
         "read_file",
         "read_task_description",
-        "suggest_fix",
     ]
     assert (study_dirs / "snapshots" / "P01_A_team" / asked["data"]["snapshot"] / "app" / "auth.py").is_file()
 
-    assert model.roles() == ["reviewer"]
-    model.route_to = ("verifier", "you asked for tests for approved vulnerabilities")
-    second = say(client, "Please test the approved vulnerabilities").json()
-    (test,) = second["approvals"]
-    verifier_call = model.last("verifier")
-    sent = verifier_call["messages"][-1]
-    assert "- V1 (High, CWE-89, app/auth.py:12, open) [no mitigation yet]: Query built from user input" in sent
-    assert "Password stored in plain text" not in sent
-    assert "### app/auth.py" not in sent  # tests come from the vulnerabilities, not the code
-    assert verifier_call["tools"] == ["get_security_state", "list_test_files", "propose_test", "read_task_description", "read_test_file"]
-    assert second["next"] is None
 
-    assert decide(client, test["id"]).status_code == 200
-    assert client.get("/workspace/files/tests/test_security_login.py").status_code == 200
+def test_a_review_returns_the_test_results_before_the_code_reviewer_starts(client, team, model):
+    first = client.post("/chat/review").json()
+    asked, tested = first["messages"]
+    assert (asked["role"], tested["data"]["agent"], first["next"]) == ("human", "verifier", "reviewer")
+    assert model.calls == []  # the Test Results panel can fill while the Code Reviewer is still to come
+    run = tested["data"]["run"]
+    assert (run["status"], run["message"], run["counts"]["failed"]) == ("failed", "3 failed", 3)
+    assert {case["name"] for case in run["tests"]} == {
+        "test_registered_user_can_log_in", "test_wrong_password_is_refused", "test_username_must_be_unique",
+    }
+    reviewed = next_reply(client).json()
+    assert (reviewed["messages"][0]["data"]["agent"], reviewed["next"]) == ("reviewer", None)
 
 
-def test_review_does_not_run_the_verifier_without_approved_vulnerabilities(client, team, model):
-    client.post("/workspace/state/risks", json=RISK)  # risks alone are not enough
-    assert client.post("/chat/review").json()["next"] is None
-    assert model.roles() == ["reviewer"]
-    assert next_reply(client).status_code == 409
-    # A direct request for tests still explains why it cannot create them.
-    model.route_to = ("verifier", "you asked for tests")
-    notice = say(client, "Write tests please").json()["messages"][-1]
-    assert (notice["role"], notice["data"]["agent"], notice["content"]) == ("system", "verifier", NO_VULNERABILITIES_NOTICE)
-    assert model.roles() == ["reviewer", "facilitator"]
-    assert next_reply(client).status_code == 409
+def test_asking_the_test_verifier_in_chat_runs_the_unit_tests(client, db, team, model):
+    say(client, "I need to build the login")
+    model.route_to = ("verifier", "you asked to run the tests")
+    result = say(client, "Please run the tests").json()
+    asked, tested = result["messages"]
+    assert (asked["role"], tested["data"]["agent"], result["next"]) == ("human", "verifier", None)
+    assert tested["content"].startswith("I ran the unit tests: 3 failed.")
+    assert model.roles() == ["planner", "threat_modeller", "facilitator"]
+    (run,) = [e for e in events(db) if e.type == "tests_run"]
+    assert run.detail["trigger"] == "chat"
+
+
+def test_asking_for_a_review_in_chat_starts_the_same_review(client, db, team, model, study_dirs):
+    say(client, "I need to build the login")
+    model.route_to = ("reviewer", "you asked for a review", True)
+    result = say(client, "I'm done, please review my code").json()
+    asked, tested, reviewed = result["messages"]
+    assert (asked["data"]["route"], asked["data"]["reason"]) == (["verifier", "reviewer"], "you asked for a review")
+    assert (study_dirs / "snapshots" / "P01_A_team" / asked["data"]["snapshot"] / "app" / "auth.py").is_file()
+    assert (tested["data"]["agent"], reviewed["data"]["agent"], result["next"]) == ("verifier", "reviewer", None)
+    assert model.last("reviewer")["messages"][-1].startswith("I'm done, please review my code\n\n### ")
+    assert [e.detail["trigger"] for e in events(db) if e.type == "tests_run"] == ["review"]
+    routed = [e for e in events(db) if e.type == "message_routed"][-1]
+    assert routed.detail["review"] is True
+
+
+def test_a_streamed_review_request_reports_the_tests_before_the_reviewer_streams(client, team, model):
+    say(client, "I need to build the login")
+    model.route_to = ("reviewer", "you asked for a review", True)
+    streamed = stream_say(client, "Review my code please")
+    assert [event["type"] for event in streamed] == [
+        "message", "message", "agent_start", "delta", "delta", "agent_complete", "done",
+    ]
+    assert streamed[1]["message"]["data"]["agent"] == "verifier"
+    assert streamed[1]["message"]["data"]["run"]["counts"]["failed"] == 3  # for the Test Results panel
+    assert streamed[-1]["next"] is None
+
+
+def test_single_mode_review_runs_the_unit_tests_without_showing_them(client, db, single, model):
+    result = client.post("/chat/review").json()
+    assert all(m["data"].get("agent") != "verifier" for m in result["messages"])
+    assert model.roles() == ["assistant"]
+    (run,) = [e for e in events(db) if e.type == "tests_run"]
+    assert (run.actor, run.mode, run.detail["trigger"]) == ("system", "single", "review")
 
 
 def test_a_failed_answer_can_be_retried(client, db, team, model):
@@ -442,7 +550,7 @@ def test_single_mode_has_one_assistant(client, single, model):
 
 def test_single_review_sends_the_neutral_message(client, single, model):
     def assistant(tools):
-        tools["suggest_fix"].invoke({**FIX, "vulnerability": "SQL injection"})
+        tools["suggest_fix"].invoke(SUGGESTION)
         return "Here is a fix."
 
     model.scripts["assistant"] = assistant
@@ -459,12 +567,12 @@ def test_single_review_sends_the_neutral_message(client, single, model):
 def test_single_fix_decisions_never_read_or_change_shared_security_state(client, db, team, model, monkeypatch, decision):
     client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
     team_ws = study.current_workspace(db)
-    team_state = team_ws.security_state
-    client.post("/study/done")
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/done")  # the Test/Verifier's final run updates the team state first
+    team_state = state_service.load(team_ws).model_dump()
+    client.post("/study/part-two", json={"task_id": "B"})
     single_ws = study.current_workspace(db)
     client.put("/workspace/notes", json={"text": "My private notes"})
-    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    original = client.get("/workspace/files/app/storage.py").json()["content"]
 
     def unexpected_state_access(*args, **kwargs):
         pytest.fail("Single-mode fixes must not access shared security state")
@@ -474,7 +582,7 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
 
     def assistant(tools):
         assert "get_security_state" not in tools and "propose_vulnerability" not in tools
-        assert tools["suggest_fix"].invoke({**FIX, "vulnerability": "SQL injection"}) == RECORDED
+        assert tools["suggest_fix"].invoke({**SUGGESTION, "vulnerability": "Path traversal", "file": "app/storage.py"}) == RECORDED
         return "This is a suggested fix. Approve or reject it, then write any approved changes yourself."
 
     model.scripts["assistant"] = assistant
@@ -482,15 +590,18 @@ def test_single_fix_decisions_never_read_or_change_shared_security_state(client,
     assert (fix["actor"], fix["status"]) == ("assistant", "pending")
     stored = db.get(Approval, fix["id"])
     assert (stored.mode, stored.workspace_id) == ("single", single_ws.id)
-    assert fix["proposal"]["vulnerability"] == "SQL injection"  # a description, not a state id
+    assert fix["proposal"]["vulnerability"] == "Path traversal"  # a description, not a state id
     decided = decide(client, fix["id"], decision).json()
     assert decided["status"] == {"approve": "approved", "reject": "rejected"}[decision]
     assert decided["result"] is None
     db.refresh(single_ws)
-    db.refresh(team_ws)
-    assert single_ws.security_state == {} and single_ws.notes == "My private notes"
-    assert team_ws.security_state == team_state
-    assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+    single_state = state_service._read(single_ws)  # single mode keeps only its unit tests, for the analysis
+    assert single_state.model_dump(include={"assumptions", "risks", "vulnerabilities", "mitigations"}) == {
+        "assumptions": [], "risks": [], "vulnerabilities": [], "mitigations": [],
+    }
+    assert single_ws.notes == "My private notes"
+    assert state_service._read(team_ws).model_dump() == team_state
+    assert client.get("/workspace/files/app/storage.py").json()["content"] == original
     assert model.roles() == ["assistant"]
     assert all(not m["data"].get("kind") for m in client.get("/chat").json()["assistant"])
     assert all(event.type != "state_item_added" for event in events(db) if event.mode == "single")
@@ -503,10 +614,10 @@ def test_each_part_keeps_its_own_conversation_and_a_finished_part_is_read_only(c
     assert client.post("/chat/review").status_code == 409
     assert next_reply(client).status_code == 409
 
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/part-two", json={"task_id": "B"})
     assert client.get("/chat").json() == {"assistant": []}
-    client.post("/study/mode", json={"mode": "team"})
-    assert [m["content"] for m in client.get("/chat/team").json()] == ["Hello", "planner reply", "threat_modeller reply"]
+    assert client.get("/chat/team").status_code == 404
+    assert client.post("/study/mode", json={"mode": "team"}).status_code == 409
 
 
 def test_without_a_configured_model_the_chat_is_unavailable(client, team, monkeypatch):
@@ -524,21 +635,137 @@ def approve_finding(client, model):
         return "One vulnerability."
 
     model.scripts["reviewer"] = reviewer
-    (finding,) = client.post("/chat/review").json()["approvals"]
+    (finding,) = review(client)["approvals"]
     del model.scripts["reviewer"]
     assert decide(client, finding["id"]).status_code == 200
+    assert finding_jobs(client) == []
+    assert client.post(f"/approvals/{finding['id']}/fix-choice", json={"choice": "reviewer"}).status_code == 200
     return finding_jobs(client)
 
 
-def test_approving_a_finding_queues_both_followups_once(client, team, model):
+def test_choosing_reviewer_queues_only_one_fix_followup(client, team, model):
     jobs = approve_finding(client, model)
     assert [(m["data"]["agent"], m["data"]["status"], m["data"]["vulnerability_id"]) for m in jobs] == [
-        ("reviewer", "queued", "V1"), ("verifier", "queued", "V1"),
+        ("reviewer", "queued", "V1"),
     ]
     assert model.roles() == ["reviewer"]  # approval itself does not wait on model calls
     assert finding_jobs(client) == jobs  # refresh never creates extra jobs
     assert decide(client, jobs[0]["data"]["approval_id"]).status_code == 409
+    assert client.post(f"/approvals/{jobs[0]['data']['approval_id']}/fix-choice", json={"choice": "developer"}).status_code == 409
     assert finding_jobs(client) == jobs
+
+
+def test_choosing_developer_gives_read_only_fix_guidance(client, team, model, db):
+    def reviewer(tools):
+        tools["propose_vulnerability"].invoke(VULNERABILITY)
+        return "One vulnerability."
+
+    model.scripts["reviewer"] = reviewer
+    (finding,) = review(client)["approvals"]
+    del model.scripts["reviewer"]
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    accepted = decide(client, finding["id"]).json()
+    assert accepted["result"] == {"item_id": "V1"}
+    assert finding_jobs(client) == []
+
+    choice = client.post(f"/approvals/{finding['id']}/fix-choice", json={"choice": "developer"})
+    assert choice.status_code == 200
+    assert choice.json()["result"] == {"item_id": "V1", "fix_choice": "developer"}
+    (job,) = finding_jobs(client)
+    assert job["data"]["fix_choice"] == "developer"
+    assert finding_jobs(client) == [job]  # reload preserves the one-time choice
+
+    def guidance(tools):
+        assert "write_fix" not in tools
+        return "In app/auth.py, replace the query with:\n```python\nsafe_query()\n```"
+
+    model.scripts["reviewer"] = guidance
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 200
+    assert "app/auth.py" in response.json()["messages"][0]["content"]
+    assert response.json()["approvals"] == []
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+    assert client.get("/workspace/state").json()["mitigations"] == []
+    assert client.post(f"/approvals/{finding['id']}/fix-choice", json={"choice": "reviewer"}).status_code == 409
+    assert db.query(Event).filter(Event.type == "fix_choice_made").one().detail["choice"] == "developer"
+
+
+def test_manual_findings_do_not_authorize_reviewer_edits(client, team):
+    assert client.post("/workspace/state/vulnerabilities", json=VULNERABILITY).status_code == 201
+    assert finding_jobs(client) == []
+
+
+def test_fix_choice_requires_an_accepted_finding(client, db, team):
+    finding = approvals.request_approval(db, study.editable_workspace(db), "reviewer", "propose_vulnerability", VULNERABILITY).id
+    path = f"/approvals/{finding}/fix-choice"
+    assert client.post(path, json={"choice": "reviewer"}).status_code == 409
+    assert client.post(path, json={"choice": "anything"}).status_code == 422
+    assert decide(client, finding, "reject").status_code == 200
+    assert client.post(path, json={"choice": "reviewer"}).status_code == 409
+    assert finding_jobs(client) == []
+
+
+def writes_the_fix(tools):
+    assert tools["write_fix"].invoke(FIX) == WRITTEN
+    return "A fix for V1."
+
+
+def test_accepting_a_finding_writes_its_fix_and_starts_nothing_else(client, team, model):
+    (job,) = approve_finding(client, model)
+    model.scripts["reviewer"] = writes_the_fix
+    (fix,) = client.post(f"/chat/follow-ups/{job['id']}").json()["approvals"]
+    assert fix["status"] == "written"
+    assert client.get("/workspace/state").json()["mitigations"][0]["status"] == "implemented"
+    assert client.get("/approvals?status=pending").json() == []  # there is no second decision
+    assert [m["data"]["agent"] for m in finding_jobs(client)] == ["reviewer"]  # no test follow-up
+    assert model.roles() == ["reviewer", "reviewer"]  # the review and the fix
+
+
+def test_a_followup_that_writes_no_fix_can_be_retried(client, team, model):
+    (job,) = approve_finding(client, model)
+    model.scripts["reviewer"] = lambda tools: "I would rather not."
+    refused = client.post(f"/chat/follow-ups/{job['id']}")
+    assert refused.status_code == 409 and "didn't write a fix for V1" in refused.json()["detail"]
+    assert [m["data"]["status"] for m in finding_jobs(client)] == ["failed"]
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+    model.scripts["reviewer"] = writes_the_fix
+    assert client.post(f"/chat/follow-ups/{job['id']}").status_code == 200
+    assert [m["data"]["status"] for m in finding_jobs(client)] == ["complete"]
+
+
+def test_a_rejected_reviewer_edit_explains_why_it_was_not_written(client, team, model):
+    (job,) = approve_finding(client, model)
+
+    def invalid_fix(tools):
+        response = tools["write_fix"].invoke({**FIX, "replace": "    row = missing_helper(username)\n"})
+        assert "F821" in response
+        return "I tried to write the fix."
+
+    model.scripts["reviewer"] = invalid_fix
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 409
+    assert "missing_helper" in response.json()["detail"]
+    assert "missing_helper" in finding_jobs(client)[0]["data"]["error"]
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+def test_a_fix_whose_code_changed_meanwhile_is_not_written_and_can_be_retried(client, team, model):
+    (job,) = approve_finding(client, model)
+    path = "/workspace/files/app/auth.py"
+    original = client.get(path).json()["content"]
+    changed = original.replace(FIND, "    # The human's own edit\n")
+
+    def human_edits_while_the_model_runs(tools):
+        tools["write_fix"].invoke(FIX)
+        client.put(path, json={"content": changed})
+        return "A fix for V1."
+
+    model.scripts["reviewer"] = human_edits_while_the_model_runs
+    assert client.post(f"/chat/follow-ups/{job['id']}").status_code == 409
+    assert client.get(path).json()["content"] == changed  # their code is left alone
+    assert client.get("/workspace/state").json()["mitigations"] == []
+    assert [m["data"]["status"] for m in finding_jobs(client)] == ["failed"]
 
 
 def test_rejected_vulnerabilities_do_not_queue_followups(client, db, team, model):
@@ -548,96 +775,71 @@ def test_rejected_vulnerabilities_do_not_queue_followups(client, db, team, model
     assert model.calls == []
 
 
-def test_existing_approved_findings_are_recovered_when_chat_reloads(client, team, model):
-    client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
+def test_selected_fix_is_recovered_when_chat_reloads(client, db, team, model):
+    finding = approvals.request_approval(db, study.editable_workspace(db), "reviewer", "propose_vulnerability", VULNERABILITY)
+    assert decide(client, finding.id).status_code == 200
+    assert finding_jobs(client) == []
+    assert client.post(f"/approvals/{finding.id}/fix-choice", json={"choice": "reviewer"}).status_code == 200
     jobs = finding_jobs(client)
-    assert len(jobs) == 2
+    assert [m["data"]["agent"] for m in jobs] == ["reviewer"]
     assert finding_jobs(client) == jobs
+    client.post("/workspace/state/mitigations", json={"vulnerability_id": "V1", "description": "Use placeholders"})
+    assert finding_jobs(client) == jobs  # a mitigation starts nothing
     assert client.post(f"/chat/follow-ups/{jobs[0]['id']}").status_code == 200
-    assert [m["data"]["status"] for m in finding_jobs(client)] == ["complete", "queued"]
+    assert [m["data"]["status"] for m in finding_jobs(client)] == ["complete"]
 
 
-def test_verifier_extends_existing_tests_without_reading_application_source(client, team, model):
-    jobs = approve_finding(client, model)
-    original = client.get("/workspace/files/tests/test_functional.py").json()["content"]
-    updated = original + "\n\ndef test_sql_injection_is_rejected():\n    assert True\n"
-
-    def verifier(tools):
-        assert "read_file" not in tools and "list_files" not in tools
-        assert "tests/test_functional.py" in tools["list_test_files"].invoke({})
-        assert "Only existing Python files" in tools["read_test_file"].invoke({"path": "app/auth.py"})
-        assert "Only existing Python files" in tools["read_test_file"].invoke({"path": "tests/../app/auth.py"})
-        assert "test_" in tools["read_test_file"].invoke({"path": "tests/test_functional.py"})
-        assert tools["propose_test"].invoke({
-            "path": "tests/test_functional.py", "content": updated, "vulnerability_ids": ["V1"],
-        }) == RECORDED
-        return "Tests for V1, extending the existing test file."
-
-    model.scripts["verifier"] = verifier
-    result = client.post(f"/chat/follow-ups/{jobs[1]['id']}").json()
-    (test,) = result["approvals"]
-    assert test["proposal"]["base_content"] == original
-    assert result["messages"][0]["id"] == jobs[1]["id"]  # placeholder becomes the reply
-    sent = model.last("verifier")["messages"][-1]
-    assert "### tests/test_functional.py" in sent and "### app/auth.py" not in sent
-    assert client.get("/workspace/files/tests/test_functional.py").json()["content"] == original
-    assert decide(client, test["id"]).status_code == 200
-    assert client.get("/workspace/files/tests/test_functional.py").json()["content"] == updated
-
-
-def test_proposing_tests_cannot_remove_existing_tests_or_overwrite_later_edits(client, team, model):
-    jobs = approve_finding(client, model)
+def test_a_proposed_test_file_cannot_overwrite_later_edits(client, db, single, model):
+    # Single mode only: the assistant may propose a test file; the team's Test/Verifier never writes tests.
     path = "tests/test_functional.py"
     original = client.get(f"/workspace/files/{path}").json()["content"]
     updated = original + "\n\ndef test_regression():\n    assert True\n"
-
-    def verifier(tools):
-        proposal = {"path": path, "content": "def test_only_new():\n    assert True\n", "vulnerability_ids": ["V1"]}
-        assert "preserve all existing" in tools["propose_test"].invoke(proposal)
-        assert tools["propose_test"].invoke({**proposal, "content": updated}) == RECORDED
-        return "One test proposal."
-
-    model.scripts["verifier"] = verifier
-    (test,) = client.post(f"/chat/follow-ups/{jobs[1]['id']}").json()["approvals"]
+    proposal = {"path": path, "content": updated, "base_content": original}
+    test = approvals.request_approval(db, study.editable_workspace(db), "assistant", "propose_test", proposal)
     human_version = original + "\n# A later human edit\n"
     client.put(f"/workspace/files/{path}", json={"content": human_version})
-    refused = decide(client, test["id"])
+    refused = decide(client, test.id)
     assert refused.status_code == 409 and "has changed" in refused.json()["detail"]
     assert client.get(f"/workspace/files/{path}").json()["content"] == human_version
-    assert client.get(f"/approvals/{test['id']}").json()["status"] == "pending"
+    assert client.get(f"/approvals/{test.id}").json()["status"] == "pending"
 
 
-def test_followups_run_concurrently_and_keep_fixes_and_tests_behind_approval(concurrent_client, enrol, model):
-    client = concurrent_client
-    enrol()
-    jobs = approve_finding(client, model)
+def test_an_older_test_verifier_followup_ends_quietly(client, db, team, model):
+    # Sessions from before the redesign may still have a queued Test/Verifier follow-up; it no longer writes tests.
+    ws = study.editable_workspace(db)
+    data = {"kind": "vulnerability_follow_up", "agent": "verifier", "vulnerability_id": "V1", "status": "queued"}
+    job = Message(
+        participant_code=ws.participant_code, workspace_id=ws.id, mode=ws.mode, thread="team", role="system",
+        content="Preparing security tests for V1.", data=data,
+    )
+    db.add(job)
+    db.commit()
+    (message,) = client.post(f"/chat/follow-ups/{job.id}").json()["messages"]
+    assert (message["data"]["status"], message["data"]["hidden"]) == ("complete", True)
+    assert model.calls == []
+
+
+def test_an_older_reviewer_followup_waits_for_a_fix_choice(client, db, team, model):
+    finding = approvals.request_approval(
+        db, study.editable_workspace(db), "reviewer", "propose_vulnerability", VULNERABILITY
+    )
+    assert decide(client, finding.id).status_code == 200
+    ws = study.editable_workspace(db)
+    job = Message(
+        participant_code=ws.participant_code, workspace_id=ws.id, mode=ws.mode, thread="team", role="system",
+        content="Writing the fix for V1.",
+        data={"kind": "vulnerability_follow_up", "agent": "reviewer", "vulnerability_id": "V1", "status": "queued"},
+    )
+    db.add(job)
+    db.commit()
     original = client.get("/workspace/files/app/auth.py").json()["content"]
-    together = Barrier(2, timeout=5)
-
-    def reviewer(tools):
-        assert "propose_vulnerability" not in tools and "mark_resolved" not in tools
-        together.wait()  # both agents must enter the model before either can finish
-        assert tools["suggest_fix"].invoke(FIX) == RECORDED
-        return "A fix for V1."
-
-    def verifier(tools):
-        together.wait()
-        assert tools["propose_test"].invoke({
-            "path": "tests/test_security_login.py", "content": "def test_regression():\n    assert True\n", "vulnerability_ids": ["V1"],
-        }) == RECORDED
-        return "Tests for V1."
-
-    model.scripts.update(reviewer=reviewer, verifier=verifier)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(pool.map(lambda m: client.post(f"/chat/follow-ups/{m['id']}"), jobs))
-    assert [r.status_code for r in responses] == [200, 200]
-    assert {a["action_type"] for r in responses for a in r.json()["approvals"]} == {"suggest_fix", "propose_test"}
-    assert all(a["status"] == "pending" for r in responses for a in r.json()["approvals"])
+    response = client.post(f"/chat/follow-ups/{job.id}")
+    assert response.status_code == 200
+    assert "Choose who should write the fix" in response.json()["messages"][0]["content"]
+    assert model.calls == []
     assert client.get("/workspace/files/app/auth.py").json()["content"] == original
-    assert client.get("/workspace/files/tests/test_security_login.py").status_code == 404
-    before = len(model.calls)
-    assert client.post(f"/chat/follow-ups/{jobs[0]['id']}").json() == responses[0].json()
-    assert len(model.calls) == before  # completed jobs are idempotent
+    assert client.post(f"/approvals/{finding.id}/fix-choice", json={"choice": "reviewer"}).status_code == 200
+    assert [m["data"].get("fix_choice") for m in finding_jobs(client)] == [None, "reviewer"]
 
 
 def test_a_second_request_never_runs_the_same_followup_twice(concurrent_client, enrol, model):
@@ -649,7 +851,7 @@ def test_a_second_request_never_runs_the_same_followup_twice(concurrent_client, 
     def reviewer(tools):
         entered.set()
         assert release.wait(timeout=5)
-        return "A fix explanation."
+        return writes_the_fix(tools)
 
     model.scripts["reviewer"] = reviewer
     path = f"/chat/follow-ups/{jobs[0]['id']}"
@@ -665,19 +867,40 @@ def test_a_second_request_never_runs_the_same_followup_twice(concurrent_client, 
         assert first.result().status_code == 200
 
 
-def test_failed_followup_does_not_block_its_sibling_and_can_retry(client, team, model):
-    jobs = approve_finding(client, model)
+def test_failed_followup_does_not_block_the_next_one_and_can_retry(client, db, team, model):
+    ws = study.editable_workspace(db)
+    findings = [
+        approvals.request_approval(db, ws, "reviewer", "propose_vulnerability", proposal)
+        for proposal in (VULNERABILITY, {**VULNERABILITY, "line": 30})
+    ]
+    for finding in findings:
+        assert decide(client, finding.id).status_code == 200
+        assert client.post(f"/approvals/{finding.id}/fix-choice", json={"choice": "reviewer"}).status_code == 200
+    jobs = finding_jobs(client)
 
     def broken(tools):
-        tools["suggest_fix"].invoke(FIX)
+        tools["write_fix"].invoke(FIX)
         raise TimeoutError("provider failed after calling a tool")
 
     model.scripts["reviewer"] = broken
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
     assert client.post(f"/chat/follow-ups/{jobs[0]['id']}").status_code == 502
     assert [m["data"]["status"] for m in finding_jobs(client)] == ["failed", "queued"]
-    assert client.get("/approvals?status=pending").json() == []  # failed runs leave no partial proposals
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == original  # failed runs change nothing
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+    def fix_for_v2(tools):
+        tools["write_fix"].invoke({**FIX, "vulnerability": "V2"})
+        return "A fix for V2."
+
+    model.scripts["reviewer"] = fix_for_v2
     assert client.post(f"/chat/follow-ups/{jobs[1]['id']}").status_code == 200
-    model.scripts["reviewer"] = lambda tools: "Try again succeeded."
+
+    def fix_for_v1(tools):
+        tools["write_fix"].invoke({**FIX, "find": "    # TODO: save the new user", "replace": "    # Saved safely: the new user"})
+        return "A fix for V1."
+
+    model.scripts["reviewer"] = fix_for_v1
     assert client.post(f"/chat/follow-ups/{jobs[0]['id']}").status_code == 200
     assert all(m["data"]["status"] == "complete" for m in finding_jobs(client))
 
@@ -687,6 +910,7 @@ def test_expired_followup_recovers_after_a_server_restart(client, db, team, mode
     job = db.get(Message, jobs[0]["id"])
     job.data = {**job.data, "status": "running", "started_at": time.time() - 601, "run_token": "old-run"}
     db.commit()
+    model.scripts["reviewer"] = writes_the_fix
     result = client.post(f"/chat/follow-ups/{job.id}")
     assert result.status_code == 200
     assert result.json()["messages"][0]["data"]["status"] == "complete"
@@ -698,7 +922,7 @@ def test_followup_cannot_be_run_in_another_or_finished_part(client, team, model)
     assert client.post("/chat/follow-ups/99999").status_code == 404
     client.post("/study/done")
     assert client.post(path).status_code == 409
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/part-two", json={"task_id": "B"})
     assert client.post(path).status_code == 404
 
 
@@ -712,16 +936,19 @@ def test_two_approval_requests_do_not_lose_either_finding(concurrent_client, enr
         return "Two findings."
 
     model.scripts["reviewer"] = reviewer
-    findings = client.post("/chat/review").json()["approvals"]
+    findings = review(client)["approvals"]
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda a: decide(client, a["id"]), findings))
     assert [r.status_code for r in responses] == [200, 200]
     assert len(client.get("/workspace/state").json()["vulnerabilities"]) == 2
-    assert len(finding_jobs(client)) == 4
+    assert finding_jobs(client) == []
+    for finding in findings:
+        assert client.post(f"/approvals/{finding['id']}/fix-choice", json={"choice": "reviewer"}).status_code == 200
+    assert len(finding_jobs(client)) == 2  # one fix follow-up each
 
 
 def test_old_review_routes_do_not_leave_a_second_verifier_waiting(client, db, team, model):
-    first = client.post("/chat/review").json()
+    first = review(client)
     asked = db.get(Message, first["messages"][0]["id"])
     asked.data = {**asked.data, "route": ["reviewer", "verifier"]}
     db.commit()
@@ -732,15 +959,23 @@ def test_old_review_routes_do_not_leave_a_second_verifier_waiting(client, db, te
 def test_same_specialist_handles_multiple_findings_in_order(concurrent_client, enrol, model):
     client = concurrent_client
     enrol()
-    client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
-    client.post("/workspace/state/vulnerabilities", json={**VULNERABILITY, "line": 30})
+    def two_findings(tools):
+        tools["propose_vulnerability"].invoke(VULNERABILITY)
+        tools["propose_vulnerability"].invoke({**VULNERABILITY, "line": 30})
+        return "Two findings."
+
+    model.scripts["reviewer"] = two_findings
+    findings = review(client)["approvals"]
+    for finding in findings:
+        assert decide(client, finding["id"]).status_code == 200
+        assert client.post(f"/approvals/{finding['id']}/fix-choice", json={"choice": "reviewer"}).status_code == 200
     reviewer_jobs = [m for m in finding_jobs(client) if m["data"]["agent"] == "reviewer"]
     entered, release = ThreadEvent(), ThreadEvent()
 
     def reviewer(tools):
         entered.set()
         assert release.wait(timeout=5)
-        return "A fix explanation."
+        return writes_the_fix(tools)
 
     model.scripts["reviewer"] = reviewer
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -750,25 +985,32 @@ def test_same_specialist_handles_multiple_findings_in_order(concurrent_client, e
             second = client.post(f"/chat/follow-ups/{reviewer_jobs[1]['id']}")
             assert second.status_code == 200
             assert second.json()["messages"][0]["data"]["status"] == "queued"
-            assert model.roles() == ["reviewer"]
+            assert model.roles() == ["reviewer", "reviewer"]  # review plus the first fix
         finally:
             release.set()
         assert first.result().status_code == 200
+
+    def fix_for_v2(tools):
+        tools["write_fix"].invoke({**FIX, "vulnerability": "V2", "find": "    # TODO: save the new user", "replace": "    # Saved"})
+        return "A fix for V2."
+
+    model.scripts["reviewer"] = fix_for_v2
     assert client.post(f"/chat/follow-ups/{reviewer_jobs[1]['id']}").status_code == 200
-    assert model.roles() == ["reviewer", "reviewer"]
+    assert model.roles() == ["reviewer", "reviewer", "reviewer"]
 
 
-def test_followup_discards_late_proposals_after_the_human_finishes_the_part(concurrent_client, enrol, model):
+def test_a_fix_is_not_written_after_the_human_finishes_the_part(concurrent_client, enrol, model):
     client = concurrent_client
-    enrol()
+    participant = enrol()["participant"]
     jobs = approve_finding(client, model)
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    finished_file = Path(get_settings().workspaces_dir) / f"{participant}_A_team" / "app/auth.py"
     entered, release = ThreadEvent(), ThreadEvent()
 
     def reviewer(tools):
         entered.set()
         assert release.wait(timeout=5)
-        tools["suggest_fix"].invoke(FIX)
-        return "A fix for V1."
+        return writes_the_fix(tools)
 
     model.scripts["reviewer"] = reviewer
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -780,5 +1022,6 @@ def test_followup_discards_late_proposals_after_the_human_finishes_the_part(conc
             release.set()
         result = pending.result()
     assert result.status_code == 200 and result.json()["approvals"] == []
-    assert "no new proposals" in result.json()["messages"][0]["content"]
-    assert client.get("/approvals?status=pending").json() == []
+    assert "wasn't written into the code" in result.json()["messages"][0]["content"]
+    assert client.get("/workspace/files/app/auth.py").status_code == 409
+    assert finished_file.read_text(encoding="utf-8") == original

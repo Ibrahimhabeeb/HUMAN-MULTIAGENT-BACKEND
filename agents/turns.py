@@ -81,6 +81,46 @@ def agent_turn(
     return save_turn(db, ws, thread, shown or text, reply, ctx, time.monotonic() - started, data)
 
 
+def agent_turn_stream(
+    db: Session,
+    ws: Workspace,
+    thread: str,
+    system_prompt: str,
+    ctx: AgentContext,
+    text: str,
+    *,
+    shown: str | None = None,
+    data: dict | None = None,
+) -> Generator[dict]:
+    """Stream an assistant reply and persist it only after the model finishes."""
+    messages = [*chat.as_langchain(chat.thread_messages(db, ws, thread)), HumanMessage(text)]
+    tools = make_tools(ctx, thread)
+    human = chat.add_message(db, ws, thread, "human", shown or text, data)
+    db.commit()
+    yield {"type": "message", "message": human}
+
+    started = time.monotonic()
+    chunks: list[str] = []
+    yield {"type": "agent_start", "agent": "assistant"}
+    with model_call(db, ws, thread):
+        for delta in runtime.run_agent_stream(system_prompt, tools, messages):
+            chunks.append(delta)
+            yield {"type": "delta", "agent": "assistant", "content": delta}
+
+    saved = chat.save_proposals(db, ws, ctx.proposals)
+    agent = chat.add_message(db, ws, thread, "agent", "".join(chunks), {"approval_ids": [a.id for a in saved]})
+    log_event(
+        db,
+        ws.participant_code,
+        "agent_replied",
+        actor=thread,
+        mode=ws.mode,
+        detail={"seconds": round(time.monotonic() - started, 1), "proposals": len(saved)},
+    )
+    db.commit()
+    yield {"type": "agent_complete", "agent": "assistant", "message": agent, "approvals": saved}
+
+
 def log_message_sent(db: Session, ws: Workspace, thread: str, content: str) -> None:
     log_event(db, ws.participant_code, "message_sent", mode=ws.mode, detail={"thread": thread, "chars": len(content)})
 

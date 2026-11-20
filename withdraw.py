@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from config import get_settings
 from db import Base, SessionLocal, init_db
-from models import Participant
+from models import Participant, Workspace
 
 
 class WithdrawError(Exception):
@@ -31,9 +31,12 @@ def withdraw(db: Session, code: str) -> list[Path]:
     if participant.status == "withdrawn":
         raise WithdrawError(f"{code} has already been withdrawn")
 
+    their_parts = select(Workspace.id).where(Workspace.participant_code == code)
     for table in reversed(Base.metadata.sorted_tables):  # tables that point to others go first
         if "participant_code" in table.c:
             db.execute(delete(table).where(table.c.participant_code == code))
+        elif "workspace_id" in table.c:  # their parts' security state and unit tests
+            db.execute(delete(table).where(table.c.workspace_id.in_(their_parts)))
     participant.status = "withdrawn"
     db.commit()
 

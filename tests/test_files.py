@@ -90,7 +90,7 @@ def test_test_caches_are_hidden(client, team):
 def test_finished_part_is_read_only(client, team):
     client.post("/study/done")
     assert client.put("/workspace/files/new.py", json={"content": "x"}).status_code == 409
-    assert client.get("/workspace/files/app/auth.py").status_code == 200
+    assert client.get("/workspace/files/app/auth.py").status_code == 409
 
 
 def test_files_need_an_active_participant(client):

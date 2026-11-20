@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import Base
@@ -17,5 +17,5 @@ class ConsentRecord(Base):
     # Its existence means every consent statement was ticked. Deliberately no timestamp or other details.
     __tablename__ = "consent_records"
 
-    participant_code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    participant_code: Mapped[str] = mapped_column(String(10), ForeignKey("participants.code"), primary_key=True)
     consent_version: Mapped[str] = mapped_column(String(50))

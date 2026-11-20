@@ -1,8 +1,16 @@
 # Secure Coding Room: backend
 
 The FastAPI backend for the study that compares a team of AI agents with a single AI assistant for secure coding.
-It runs one participant session at a time: information sheet, consent, two parts (one in each mode) and a
-questionnaire.
+Each browser tab has its own participant session: information sheet, consent, two parts (one in each mode)
+and a questionnaire. Different participants can work at the same time.
+
+## Hosting
+
+Follow [DEPLOYMENT.md](DEPLOYMENT.md) for the Linux VPS setup: a built frontend with automatic HTTPS,
+the FastAPI API, persistent PostgreSQL and code storage, and a private container-based Python test runner.
+Production requires explicit settings and never executes participant Python in the API process. Use one API
+worker while pre-consent sessions remain in memory. The new hosted database starts empty; generated sample
+results are not deployed. Existing local participant data is not copied or deleted by the deployment.
 
 ## Setup
 
@@ -24,7 +32,14 @@ Optional settings, in `.env` or as environment variables:
 | Setting | Default | Meaning |
 |---|---|---|
 | `TEST_TIMEOUT_SECONDS` | `60` | How long one click on Run tests may take |
-| `DATABASE_URL` | `sqlite:///./data/app.db` | Where everything except code is stored |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | Where everything except code is stored. The study uses PostgreSQL: `postgresql+psycopg://USER:PASSWORD@localhost:5432/HUMANAGENTDB` |
+| `APP_ENV` | `development` | `production` requires PostgreSQL, model credentials, allowed hosts, persistent absolute paths and the isolated runner |
+| `FRONTEND_ORIGINS` | Local development URLs | JSON array of allowed browser origins; production uses the same-origin proxy |
+| `ALLOWED_HOSTS` | `["*"]` | JSON array of accepted hostnames; production requires explicit values |
+| `TEST_RUNNER_URL` / `TEST_RUNNER_TOKEN` | Unset | Private production test service and its credential; not exposed to participants |
+| `API_DOCS_ENABLED` | `true` | Disabled by the production Compose configuration |
+| `PENDING_SESSION_TTL_SECONDS` | `7200` | Expiry for unconsented in-memory setup sessions |
+| `MAX_PENDING_SESSIONS` | `1000` | Upper bound on pending browser setup sessions |
 
 ## Run
 
@@ -42,7 +57,47 @@ uv run pytest
 uv run ruff check .
 ```
 
-The tests never call the AI model and never touch `data/app.db`.
+The tests never call the AI model and never touch the study database: each test uses its own throwaway SQLite
+database. The PostgreSQL-only analysis views are not covered by them.
+
+## Continuous integration
+
+`.github/workflows/backend-ci.yml` runs on pull requests targeting `main`, pushes to `main`, and manual runs
+from GitHub's Actions tab. Two independent checks use Python 3.13 and the dependencies recorded in `uv.lock`:
+
+- **Backend lint** runs `ruff check .`.
+- **Backend tests** runs the existing `pytest` suite on Linux, with temporary SQLite databases and mocked AI calls.
+
+No model credentials or deployment credentials are needed. These checks cover the backend application tests;
+they do not deploy the application or validate the PostgreSQL-only analysis views.
+
+After the workflow has run on GitHub, add **Backend lint** and **Backend tests** to the required status checks
+in the `main` branch ruleset. Future pull requests must then pass both checks before they can be merged.
+
+## Database
+
+With PostgreSQL, the app brings the database up to date itself when it starts, using the Alembic migrations in
+`migrations/versions/`: the tables, then the analysis views. After changing a model, add a migration:
+
+```
+uv run alembic revision --autogenerate -m "what changed"
+uv run alembic upgrade head
+```
+
+The views give the study's statistics directly (open them in pgAdmin under Schemas > public > Views):
+
+| View | One row per | What it gives |
+|---|---|---|
+| `v_part_summary` | part | Time on task, reviews, test runs, typed messages, decisions, and the results below |
+| `v_vulnerability_outcomes` | team part | Findings proposed, accepted, rejected, fixed (mitigation implemented), still without a fix |
+| `v_security_state_inventory` | team part | Assumption, risk and mitigation counts; accepted findings with linked and implemented mitigations |
+| `v_security_state_decisions` | team state-related action | Agent action, status and human decision time where applicable; no proposal text or code |
+| `v_unit_test_results` | part, both modes | Final unit-test counts, the latest recorded hidden security assessment, and combined totals and pass rates. Security runs are stored in `events` at Finish part. |
+| `v_survey` | answer | Each answer with its question, its number (`value_num`) and `score` (reversed if `reverse_scored`) |
+| `v_survey_paired` | participant and question | The per-mode questions, team and single side by side |
+
+`uv run python export.py` writes `results/survey.csv` and, with PostgreSQL, each view as `results/<view>.csv`,
+without pilots or withdrawn participants.
 
 ## Before the study
 
@@ -57,19 +112,39 @@ The tests never call the AI model and never touch `data/app.db`.
 
 Everything happens in the browser. The frontend asks `GET /study/state` which screen to show.
 
+The frontend first calls `POST /study/session` with `{"mode": "team"}` (or `"single"`). It keeps the returned
+random token in `sessionStorage` and sends it as `X-Session-Token` on subsequent study, workspace, chat and
+approval requests. Missing, unknown or revoked tokens receive 401; there is no global active-participant fallback.
+Public information/consent content and health checks do not expose participant data.
+
 1. **Start**: choose the task, then `POST /study/start` with `{"pilot": false, "task_id": "A"}`
-   (`A` = login, `B` = file download; defaults to `A`). Nothing is stored yet.
+   (`A` = authentication, `B` = file download, `C` = comment rendering,
+   `D` = preferences import, `E` = account email update, `F` = document access,
+   `G` = account recovery audit; defaults to `A`). Nothing is stored yet.
 2. **Information sheet**, then **consent**: `POST /study/continue`, then `POST /study/consent`. Only now is the
    participant ID created: `P01`, `P02`... or `X01`... for pilots.
 3. **Part 1**: the chosen task, in the mode chosen with `POST /study/mode` (`team` or `single`).
-4. **Done**: `POST /study/done`. Continue with the other mode for the same task in part 2,
-   using a fresh starter copy. Each mode keeps its own code, chat, approvals, tests and snapshots.
+4. **Done**: `POST /study/done` saves and closes Part 1. The participant chooses a different task
+   for Part 2 with `POST /study/part-two` and `{"task_id": "B"}`. Part 2 opens in the other mode.
+   Each mode keeps its own code, chat, approvals, tests and snapshots; completed parts cannot be reopened.
 5. **Questionnaire**: `GET /study/questionnaire`, then `POST /study/questionnaire`.
 6. **Thank you**, then **Finish**: `POST /study/finish`.
 
 **Restart for new participant**
 (`POST /study/restart`) ends the session at any point and keeps the data, marking the participant incomplete.
-Each participant starts in the mode the previous one ended in, so the starting mode alternates.
+Finish and Restart revoke the old token and return a fresh token in the `X-Session-Token` response header;
+the frontend replaces its stored token. The same tab defaults to the previous ending mode for the next
+participant. A fresh tab defaults to team; the researcher can select either starting mode.
+
+Before consent, setup is held only in server memory, keyed by the token hash. After consent, `study_sessions`
+stores only the SHA-256 token hash and participant code. A server restart preserves consented sessions but
+discards pre-consent setup. Run one backend worker while pre-consent sessions use process memory.
+Tokens and hashes are not added to questionnaire answers or interaction events.
+
+Closing a tab clears its browser token; it does not automatically delete or complete saved study data.
+Open a fresh study tab for a different participant rather than duplicating a tab with an existing session,
+because browsers can copy sessionStorage when duplicating tabs. Existing participant records without a token
+are preserved, but are never automatically assigned to a new browser.
 
 During a part:
 
@@ -80,22 +155,24 @@ During a part:
 | Ready for review / Review updated code | `POST /chat/review` |
 | Finding follow-ups (team mode) | `POST /chat/follow-ups/{message_id}` |
 | Run tests | `POST /workspace/tests/run` |
-| Approvals | `GET /approvals`, `POST /approvals/{id}/decide` |
+| Approvals and fix ownership | `GET /approvals`, `POST /approvals/{id}/decide`, `POST /approvals/{id}/fix-choice` (team mode) |
 | Shared security state (team mode) | `GET /workspace/state`, `POST`/`PATCH`/`DELETE /workspace/state/{category}/...` |
 | Notes (single mode) | `GET`/`PUT /workspace/notes` |
 
-Fixes, vulnerabilities, assumptions and test files wait for approval in the chat; the Approvals pane holds
-suggested risks and decision history. Risks go straight into the shared security state as suggestions.
+Vulnerabilities, assumptions and test files wait for approval in the chat; the Approvals pane holds suggested
+risks, fixes written and decision history. Risks go straight into the shared security state as suggestions.
 In team mode, the first message runs the Planner and then the Threat Modeller automatically in one request.
 The Planner gives implementation steps; the Threat Modeller receives that plan and analyses potential attacks,
 impact and expected secure behaviour. Neither the handoff nor reading project files needs a confirmation.
 Each reply is saved before the next agent starts; `POST /chat/next` can retry an interrupted route.
-In single mode, fix/test approvals are decision records only: they never create or update shared security state.
-Approving a fix never changes application code in either mode; the human writes it themselves.
-Approving a vulnerability queues the Reviewer's fix suggestion and the Verifier's test proposal together.
-Their progress is persisted in chat messages, so refresh resumes queued work without duplicating model calls.
-The Verifier reads existing Python files under `tests/` and can propose extending them. Files change only when
-a test proposal is approved; production fixes are always typed by the human.
+In single mode, fix/test approvals are decision records only: they never create or update shared security state,
+and an approved fix never changes the code: the human types it.
+In team mode, accepting a vulnerability records the finding and asks in chat who should write its fix. If the
+developer chooses the Code Reviewer, `write_fix` replaces the exact code it names and records an `implemented`
+mitigation. If the developer chooses to write it, the reviewer gives a file path, code suggestion and explanation
+in chat without editing files. The choice and follow-up are saved, so a refresh does not repeat the question or
+duplicate the model call. The editor is locked only while the reviewer is writing code. If the code changes before
+the reviewer can apply a fix, nothing is written and the follow-up can be retried.
 
 ## Researcher scripts
 
@@ -110,7 +187,7 @@ None of it is committed to git.
 
 | Location | Contents |
 |---|---|
-| `data/app.db` | Participants, consent records, the event log, approvals, chat messages, questionnaire answers |
+| The database (`DATABASE_URL`) | Participants, hashed session tokens, consent records, the event log, approvals, chat messages, the security state (one table per section) and unit test results, the questions and the answers |
 | `workspaces/<ID>_<task>_<mode>/` | An independent code workspace for each mode |
 | `snapshots/<ID>_<task>_<mode>/` | That mode's code at each review, test run and Done |
 | `results/` | Exports |

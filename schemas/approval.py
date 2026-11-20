@@ -14,35 +14,46 @@ ActionType = Literal[
     "mark_resolved",
     "propose_test",
     "suggest_fix",
+    "write_fix",
 ]
-ApprovalStatus = Literal["pending", "approved", "rejected", "suggested"]
+ApprovalStatus = Literal["pending", "approved", "rejected", "suggested", "written", "undone"]
 Decision = Literal["approve", "reject"]  # proposals are never edited: the human changes approved items themselves
+FixChoice = Literal["reviewer", "developer"]
 
 
 class ResolveProposal(BaseModel):
-    item_id: str = Field(pattern=r"^[RV]\d+$")  # a risk (R2) or a vulnerability (V1)
+    item_id: str = Field(pattern=r"^M\d+$")  # a mitigation the developer's code now contains, marked implemented
     reason: str = Field(min_length=3, max_length=1000)
 
 
 class ProposedTest(BaseModel):
+    # Single mode only: the team's Test/Verifier runs the task's tests and never writes any.
     path: str = Field(pattern=r"^tests/(?:[\w-]+/)*test_[\w-]+\.py$")
     content: str = Field(min_length=1, max_length=MAX_FILE_CHARS)
-    vulnerability_ids: list[str] = []  # the approved vulnerabilities it tests (team mode)
     base_content: str | None = None  # existing file when proposed; prevents overwriting later human edits
 
 
-class FixSuggestion(BaseModel):
-    # In team mode an approved fix becomes a mitigation for the vulnerability it fixes.
+class Fix(BaseModel):
     vulnerability: str = Field(max_length=200)  # what it fixes, e.g. "V2", or a short description in single mode
     file: str = Field(min_length=1, max_length=300)
-    location: str = Field(min_length=3, max_length=300)  # where the code goes, e.g. "login(), replacing line 12"
-    code: str = Field(min_length=1, max_length=20_000)
     why: str = Field(min_length=3, max_length=2000)
 
     @field_validator("file")
     @classmethod
     def valid_file_path(cls, value: str) -> str:
         return clean_path(value)
+
+
+class FixWrite(Fix):
+    # Team mode: the Code Reviewer's fix for an accepted vulnerability, written straight into the code.
+    find: str = Field(min_length=1, max_length=20_000)  # the existing code to replace, exactly as it is in the file
+    replace: str = Field(max_length=20_000)
+
+
+class FixSuggestion(Fix):
+    # Single mode: the human types an approved fix themselves.
+    location: str = Field(min_length=3, max_length=300)  # where the code goes, e.g. "login(), replacing line 12"
+    code: str = Field(min_length=1, max_length=20_000)
 
     @field_validator("location")
     @classmethod
@@ -59,14 +70,19 @@ PROPOSAL_SCHEMAS: dict[str, type[BaseModel]] = {
     "mark_resolved": ResolveProposal,
     "propose_test": ProposedTest,
     "suggest_fix": FixSuggestion,
+    "write_fix": FixWrite,
 }
 
 # Single mode has no shared security state, so only fixes and tests can be proposed there.
 SINGLE_MODE_ACTIONS = {"suggest_fix", "propose_test"}
 
-# The Threat Modeller's risks need no decision: each goes straight into the security state, and the Approvals panel
-# shows it as "suggested", without Approve or Reject.
-SUGGESTIONS = {"propose_risk"}
+# These need no decision, so the Approvals panel shows them without Approve or Reject: (their status, their state
+# category). The Threat Modeller's risks go straight into the security state. The Code Reviewer's fix goes straight
+# into the code, and into the state as a mitigation: accepting the vulnerability was the decision.
+NO_DECISION: dict[str, tuple[ApprovalStatus, str]] = {
+    "propose_risk": ("suggested", "risks"),
+    "write_fix": ("written", "mitigations"),
+}
 
 
 class ApprovalOut(BaseModel):
@@ -85,3 +101,7 @@ class ApprovalOut(BaseModel):
 
 class DecisionRequest(BaseModel):
     decision: Decision
+
+
+class FixChoiceRequest(BaseModel):
+    choice: FixChoice

@@ -5,6 +5,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Python bytecode and build output
 __pycache__/
@@ -26,6 +27,7 @@ data/
 workspaces/
 snapshots/
 results/
+backups/
 logs/
 *.log
 *.sqlite3

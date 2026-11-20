@@ -13,6 +13,22 @@ from main import app
 from services import content, study
 
 
+class StudyClient(TestClient):
+    def __init__(self, app, token=None):
+        super().__init__(app)
+        if token is None:
+            response = super().request("POST", "/study/session", json={"mode": "team"})
+            assert response.status_code == 200
+            token = response.json()["token"]
+        self.headers["X-Session-Token"] = token
+
+    def request(self, *args, **kwargs):
+        response = super().request(*args, **kwargs)
+        if token := response.headers.get("X-Session-Token"):
+            self.headers["X-Session-Token"] = token
+        return response
+
+
 @pytest.fixture(autouse=True)
 def fresh_study_memory():
     study.reset_memory()
@@ -42,11 +58,11 @@ def db():
 
 @pytest.fixture
 def client(db):
-    return TestClient(app)
+    return StudyClient(app)
 
 
 @pytest.fixture
-def concurrent_client(db, tmp_path):
+def concurrent_client(db, tmp_path, client):
     # Concurrency tests need a distinct session/connection per request, as in the running server.
     engine = create_engine(f"sqlite:///{(tmp_path / 'concurrent.db').as_posix()}", connect_args={"check_same_thread": False})
     init_db(engine)
@@ -58,7 +74,7 @@ def concurrent_client(db, tmp_path):
 
     previous = app.dependency_overrides[get_db]
     app.dependency_overrides[get_db] = isolated_db
-    http = TestClient(app)
+    http = StudyClient(app, token=client.headers["X-Session-Token"])
     yield http
     http.close()
     app.dependency_overrides[get_db] = previous
@@ -91,39 +107,64 @@ def single(enrol):
 def finish_parts(client):
     # Clicks Done on the current part, switches to the other mode and clicks Done again.
     def _finish():
-        mode = client.get("/study/state").json()["mode"]
+        first_task = client.get("/study/state").json()["task"]["id"]
         client.post("/study/done")
-        client.post("/study/mode", json={"mode": "single" if mode == "team" else "team"})
+        client.post("/study/part-two", json={"task_id": "B" if first_task == "A" else "A"})
         client.post("/study/done")
 
     return _finish
 
 
-# A stand-in for content/questionnaire.json; the real wording is added once it is approved.
+# A compact stand-in for content/questionnaire.json.
 SAMPLE_QUESTIONNAIRE = {
     "version": "test",
     "sections": [
         {
             "title": "Each mode",
             "asked_for": "each_mode",
-            "questions": [{"key": "confidence", "type": "scale", "text": "I am confident my final code is secure."}],
+            "questions": [
+                {
+                    "number": 1,
+                    "key": "confidence",
+                    "type": "scale",
+                    "text": "I am confident my final code is secure.",
+                    "scale": {"min": 1, "max": 7, "min_label": "Strongly disagree", "max_label": "Strongly agree"},
+                },
+                {
+                    "number": 2,
+                    "key": "effort",
+                    "type": "number",
+                    "text": "How much effort did you expend?",
+                    "scale": {"min": 0, "max": 100, "min_label": "Very low", "max_label": "Very high"},
+                },
+            ],
         },
         {
             "title": "Agent team",
             "asked_for": "team",
-            "questions": [{"key": "roles_clear", "type": "scale", "text": "Each agent's role was clear."}],
+            "questions": [
+                {
+                    "number": 3,
+                    "key": "roles_clear",
+                    "type": "scale",
+                    "text": "Each agent's role was clear.",
+                    "scale": {"min": 1, "max": 5, "min_label": "Strongly disagree", "max_label": "Strongly agree"},
+                    "allow_not_applicable": True,
+                }
+            ],
         },
         {
             "title": "Comparing",
             "asked_for": "once",
             "questions": [
                 {
+                    "number": 4,
                     "key": "preferred",
                     "type": "choice",
                     "text": "Which would you rather use?",
                     "options": ["Agent team", "Single assistant", "No preference"],
                 },
-                {"key": "difference", "type": "text", "text": "What was the biggest difference?"},
+                {"number": 5, "key": "difference", "type": "text", "text": "What was the biggest difference?"},
             ],
         },
     ],

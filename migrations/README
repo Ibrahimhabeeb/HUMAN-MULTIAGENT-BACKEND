@@ -1,0 +1,2 @@
+Alembic migrations for the PostgreSQL study database: versions/ holds the tables, then the analysis views.
+The app applies them at startup; see env.py and the Database section of ../README.md.

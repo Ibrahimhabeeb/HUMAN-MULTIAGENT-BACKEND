@@ -1,20 +1,28 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Body, HTTPException
 
+from api.dependencies import Db
 from api.errors import run
-from db import get_db
+from schemas.completion import CompletionRequest, CompletionResult
 from schemas.linting import LintRequest, LintResult
 from schemas.runner import RunResult
-from schemas.security_state import Category, HumanCategory, SecurityState
+from schemas.security_state import (
+    Category,
+    HumanAddCategory,
+    HumanCategory,
+    SecurityState,
+)
 from schemas.workspace import FileWrite, FolderCreate, Notes, NotesWrite, RenameRequest
-from services import linting, runner, state_service, study, workspace
+from services import completion, linting, runner, state_service, study, workspace
 
-# Everything here acts on the current participant's open part, so no ids are needed in the URLs.
+# The session header selects the participant's open part; participant ids are not accepted in URLs.
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
-Db = Annotated[Session, Depends(get_db)]
+
+@router.post("/completions")
+def python_completions(db: Db, body: CompletionRequest) -> CompletionResult:
+    return run(lambda: completion.suggest(study.current_workspace(db), body.path, body.content, body.line, body.column))
 
 
 @router.post("/lint")
@@ -93,7 +101,7 @@ def get_item(db: Db, category: Category, item_id: str) -> dict:
 
 
 @router.post("/state/{category}", status_code=201)
-def add_item(db: Db, category: HumanCategory, body: Annotated[dict[str, Any], Body()]) -> dict:
+def add_item(db: Db, category: HumanAddCategory, body: Annotated[dict[str, Any], Body()]) -> dict:
     item = run(lambda: state_service.human_add(db, study.editable_workspace(db), category, body))
     return item.model_dump(mode="json")
 

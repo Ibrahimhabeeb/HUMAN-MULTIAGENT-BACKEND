@@ -1,53 +1,85 @@
 {
-  "version": "v1",
-  "scale": {"min": 1, "max": 7, "min_label": "Strongly disagree", "max_label": "Strongly agree"},
+  "version": "v1.3",
   "sections": [
     {
-      "title": "Both ways of working",
-      "intro": "Rate each statement once for each way of working.",
+      "title": "Confidence and usability",
+      "show_title": false,
       "asked_for": "each_mode",
       "questions": [
-        {"key": "threat_modelling", "type": "scale", "text": "This way of working helped me think about what could go wrong before and while I wrote the code."},
-        {"key": "testing", "type": "scale", "text": "This way of working helped me test whether my code was secure."},
-        {"key": "revision", "type": "scale", "text": "This way of working helped me find and fix security problems in my code."},
-        {"key": "confidence", "type": "scale", "text": "I am confident that my final code is secure."},
-        {"key": "control", "type": "scale", "text": "I felt in control of the decisions and the code."},
-        {"key": "approving", "type": "scale", "text": "Approving or rejecting each suggestion helped me check it before using it."},
-        {"key": "workload", "type": "scale", "text": "I could keep up with the AI's messages and suggestions without feeling overloaded."}
+        {"number": 1, "key": "functional_confidence", "type": "choice", "text": "How confident are you that the code you completed with the {mode} meets the task's functional requirements?", "options": ["Not at all confident", "Slightly confident", "Moderately confident", "Very confident", "Extremely confident"]},
+        {"number": 2, "key": "security_confidence", "type": "choice", "text": "How confident are you that the code you completed with the {mode} meets the task's security requirements?", "options": ["Not at all confident", "Slightly confident", "Moderately confident", "Very confident", "Extremely confident"]},
+        {"number": 3, "key": "vulnerability_risk_trust", "type": "choice", "text": "I trusted the {mode} to identify security vulnerabilities and relevant risks in my code.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]},
+        {"number": 4, "key": "mitigation_trust", "type": "choice", "text": "I trusted the {mode} to recommend appropriate mitigations for identified vulnerabilities.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]},
+        {"number": 5, "key": "unnecessary_complexity", "type": "choice", "text": "I found working with the {mode} unnecessarily complex.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]}
       ]
     },
     {
-      "title": "The agent team",
-      "intro": "These statements are about the agent team only.",
+      "title": "Reliability and caution",
+      "show_title": false,
+      "asked_for": "each_mode",
+      "questions": [
+        {"number": 6, "key": "recommendation_reliability", "type": "choice", "text": "I found the {mode}'s recommendations reliable.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]},
+        {"number": 7, "key": "recommendation_wariness", "type": "choice", "text": "I was wary of the {mode}'s recommendations.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]}
+      ]
+    },
+    {
+      "title": "Workload",
+      "show_title": false,
+      "asked_for": "each_mode",
+      "questions": [
+        {"number": 8, "key": "task_effort", "type": "choice", "text": "How much effort did you expend to complete the coding task with the {mode}?", "options": ["None", "A little", "A moderate amount", "A great deal"]},
+        {"number": 9, "key": "security_advice_effort", "type": "choice", "text": "How much effort did you need to expend to understand and assess the {mode}'s vulnerability, risk, and mitigation recommendations?", "options": ["None", "A little", "A moderate amount", "A great deal"]}
+      ]
+    },
+    {
+      "title": "Human control",
+      "show_title": false,
+      "asked_for": "each_mode",
+      "questions": [
+        {"number": 10, "key": "human_control", "type": "choice", "text": "How much control did you feel you had over the {mode}'s work during the task?", "options": ["No control", "A little control", "Some control", "A great deal of control"]}
+      ]
+    },
+    {
+      "title": "Agent team only",
+      "show_title": true,
+      "intro": "Select Not applicable if appropriate.",
       "asked_for": "team",
       "questions": [
-        {"key": "choosing_agents", "type": "scale", "text": "It was clear which agent to consult at each point."},
-        {"key": "facilitator", "type": "scale", "text": "The Facilitator's suggestions helped me decide whom to consult."},
-        {"key": "roles_clear", "type": "scale", "text": "Each agent's role was clear."},
-        {"key": "state_tracking", "type": "scale", "text": "The shared security state helped me keep track of risks, mitigations and evidence."},
-        {"key": "state_visible", "type": "scale", "text": "Risks raised early stayed visible until they were dealt with."},
-        {"key": "evidence", "type": "scale", "text": "Test results linked to risks showed me which risks were dealt with."}
+        {"number": 11, "key": "specialist_role_clarity", "type": "choice", "text": "It was clear which specialist agent to consult for the issue I was working on.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree", "Not applicable"]},
+        {"number": 12, "key": "state_unresolved_visibility", "type": "choice", "text": "It was clear which security concerns remained unresolved in the shared security state.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree", "Not applicable"]},
+        {"number": 13, "key": "state_evidence_traceability", "type": "choice", "text": "I could trace an identified security concern to the evidence recorded about it in the shared security state.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree", "Not applicable"]},
+        {"number": 14, "key": "state_status_tracking", "type": "choice", "text": "The shared security state helped me keep track of security findings and their current status.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree", "Not applicable"]},
+        {"number": 15, "key": "state_mitigation_linkage", "type": "choice", "text": "I could understand which mitigation related to an identified vulnerability in the shared security state.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree", "Not applicable"]},
+        {"number": 16, "key": "state_test_visibility", "type": "choice", "text": "I could determine whether an identified vulnerability had a related security test.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree", "Not applicable"]}
       ]
     },
     {
-      "title": "Comparing the two",
-      "intro": "Choose one answer for each question.",
+      "title": "Final feedback",
+      "show_title": true,
+      "intro": "Choose one answer.",
       "asked_for": "once",
       "questions": [
-        {"key": "more_secure", "type": "choice", "text": "Which helped you more with security?", "options": ["Agent team", "Single assistant", "No difference"]},
-        {"key": "more_control", "type": "choice", "text": "In which did you feel more in control?", "options": ["Agent team", "Single assistant", "No difference"]},
-        {"key": "less_effort", "type": "choice", "text": "Which took less effort?", "options": ["Agent team", "Single assistant", "No difference"]},
-        {"key": "prefer", "type": "choice", "text": "Which would you rather use for security-sensitive code?", "options": ["Agent team", "Single assistant", "No preference"]}
+        {"number": 17, "key": "future_security_mode", "type": "choice", "text": "Which mode would you choose for a future security-sensitive coding task?", "options": ["Agent team", "Single assistant", "No preference", "Not sure"]}
       ]
     },
     {
       "title": "About your experience",
+      "show_title": true,
       "intro": "Choose one answer for each question.",
       "asked_for": "once",
       "questions": [
-        {"key": "python_experience", "type": "choice", "text": "How long have you programmed in Python?", "options": ["Less than 1 year", "1–3 years", "More than 3 years"]},
-        {"key": "security_familiarity", "type": "choice", "text": "How familiar are you with secure coding, e.g. the OWASP Top 10?", "options": ["Not familiar", "Somewhat familiar", "Very familiar"]},
-        {"key": "ai_assistant_use", "type": "choice", "text": "How often do you use AI coding assistants?", "options": ["Never", "Sometimes", "Often"]}
+        {"number": 18, "key": "python_experience", "type": "choice", "text": "How long have you programmed in Python?", "options": ["Less than 1 year", "1-3 years", "More than 3 years"]},
+        {"number": 19, "key": "security_familiarity", "type": "choice", "text": "How familiar are you with secure coding, e.g. the OWASP Top 10?", "options": ["Not familiar", "Somewhat familiar", "Very familiar"]},
+        {"number": 20, "key": "ai_assistant_use", "type": "choice", "text": "How often do you use AI coding assistants?", "options": ["Never", "Sometimes", "Often"]}
+      ]
+    },
+    {
+      "title": "Final comments",
+      "show_title": true,
+      "intro": "This response is optional.",
+      "asked_for": "once",
+      "questions": [
+        {"number": 21, "key": "open_feedback", "type": "text", "text": "Is there anything else you would like to tell us about your experience of using the agent team and the single assistant for secure coding?"}
       ]
     }
   ]

@@ -47,7 +47,7 @@ def test_consent_creates_participant_and_opens_part_1(team, db):
 def test_consent_copies_the_starter_task_into_a_workspace(team):
     folder = Path(get_settings().workspaces_dir) / "P01_A_team"
     assert (folder / "app" / "auth.py").is_file()
-    assert (folder / "README.md").read_text(encoding="utf-8").startswith("# Task: User login")
+    assert (folder / "README.md").read_text(encoding="utf-8").startswith("# Task: Authentication")
 
 
 def test_consent_requires_the_current_form_version(client, db):
@@ -70,7 +70,7 @@ def test_codes_count_up_separately_for_pilots_and_are_never_reused(client, enrol
     assert enrol()["participant"] == "P02"
 
 
-def test_only_one_session_at_a_time(client, team):
+def test_one_participant_per_tab_session(client, team):
     assert client.post("/study/start", json={"pilot": False}).status_code == 409
 
 
@@ -99,37 +99,49 @@ def test_cannot_start_the_other_mode_before_done(client, team, db):
     assert db.query(Workspace).count() == 1
 
 
-def test_done_then_switch_runs_part_2_with_the_same_task(client, db, team):
+def test_done_requires_a_different_task_and_opens_the_other_mode(client, db, team):
     after_done = client.post("/study/done").json()
     assert after_done["screen"] == "part_complete"
+    assert after_done["task"] is None and after_done["parts"] == []
+    assert after_done["needs_next_task"] is True
+    assert {task["id"] for task in after_done["available_tasks"]} == {"B", "C", "D", "E", "F", "G"}
+    assert client.get("/workspace/files").status_code == 409
+    assert client.post("/study/mode", json={"mode": "single"}).status_code == 409
+    assert client.post("/study/part-two", json={"task_id": "A"}).status_code == 409
+    assert db.query(Workspace).count() == 1
 
-    part_2 = client.post("/study/mode", json={"mode": "single"}).json()
-    assert (part_2["screen"], part_2["part"], part_2["task"]["id"]) == ("ide", 2, "A")
-    assert (Path(get_settings().workspaces_dir) / "P01_A_single" / "app" / "auth.py").is_file()
+    part_2 = client.post("/study/part-two", json={"task_id": "B"}).json()
+    assert (part_2["screen"], part_2["part"], part_2["mode"], part_2["task"]["id"]) == ("ide", 2, "single", "B")
+    assert (Path(get_settings().workspaces_dir) / "P01_B_single" / "app" / "storage.py").is_file()
 
     switched = db.query(Event).filter(Event.type == "mode_switched").one()
     assert switched.detail == {"from": "team", "to": "single"}
 
 
-def test_switching_back_to_a_finished_part_shows_part_complete(client, team):
+def test_finished_part_cannot_be_reopened(client, team):
     client.post("/study/done")
-    client.post("/study/mode", json={"mode": "single"})
-    assert client.post("/study/mode", json={"mode": "team"}).json()["screen"] == "part_complete"
+    client.post("/study/part-two", json={"task_id": "B"})
+    assert client.post("/study/mode", json={"mode": "team"}).status_code == 409
+    assert client.get("/study/state").json()["task"]["id"] == "B"
 
 
 def test_questionnaire_opens_when_both_parts_are_done(client, team):
     client.post("/study/done")
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/part-two", json={"task_id": "B"})
     state = client.post("/study/done").json()
     assert state["screen"] == "questionnaire"
     assert [(p["part"], p["mode"], p["task_id"], p["done"]) for p in state["parts"]] == [
         (1, "team", "A", True),
-        (2, "single", "A", True),
+        (2, "single", "B", True),
     ]
 
 
-def test_done_saves_a_snapshot(client, team):
+def test_done_tests_the_same_final_snapshot_as_the_hidden_assessment(client, db, team):
     client.post("/study/done")
+    (run,) = db.query(Event).filter(Event.type == "tests_run").all()
+    assert (run.actor, run.detail["trigger"], run.detail["snapshot"]) == ("verifier", "finish", "01_done")
+    assessment = db.query(Event).filter(Event.type == "security_tests_run").one()
+    assert assessment.detail["snapshot"] == run.detail["snapshot"]
     assert (Path(get_settings().snapshots_dir) / "P01_A_team" / "01_done" / "app" / "auth.py").is_file()
 
 
@@ -140,7 +152,7 @@ def test_done_twice_is_refused(client, team):
 
 def test_next_participant_starts_in_the_mode_the_last_one_ended_in(client, team):
     client.post("/study/done")
-    client.post("/study/mode", json={"mode": "single"})
+    client.post("/study/part-two", json={"task_id": "B"})
     client.post("/study/restart")
     assert client.get("/study/state").json()["mode"] == "single"
 

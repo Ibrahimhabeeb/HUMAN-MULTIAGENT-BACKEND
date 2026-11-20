@@ -1,0 +1,25 @@
+{
+  "case_id": "benchmarkpython-00001",
+  "title": "File-access endpoint",
+  "source": {
+    "project": "OWASP Benchmark for Python v0.1",
+    "repository": "https://github.com/OWASP-Benchmark/BenchmarkPython",
+    "file": "testcode/BenchmarkTest00001.py",
+    "expected_results_file": "expectedresults-0.1.csv"
+  },
+  "agent_material": {
+    "review_filename": "file_access.py",
+    "include": "Copy only the endpoint source into a clean review file.",
+    "exclude": [
+      "The original BenchmarkTest filename",
+      "The route/category name",
+      "The expected-results CSV",
+      "Any OWASP challenge metadata"
+    ]
+  },
+  "review_prompt": "Review the provided Python web endpoint for concrete security vulnerabilities. Report only weaknesses present in the code. For each finding, explain the affected code, likely impact, CWE if known, and a safe mitigation direction. If no concrete vulnerability is present, say 'No vulnerabilities found.'",
+  "comparison": {
+    "conditions": ["team", "single"],
+    "keep_constant": ["source snapshot", "review prompt", "model configuration", "available source files"]
+  }
+}

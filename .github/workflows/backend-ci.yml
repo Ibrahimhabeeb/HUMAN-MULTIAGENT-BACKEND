@@ -1,0 +1,62 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Backend lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the proposed code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.11.7"
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups --no-install-project
+      - name: Run Ruff
+        run: uv run --no-sync ruff check .
+
+  tests:
+    name: Backend tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: development
+    steps:
+      - name: Check out the proposed code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.11.7"
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups --no-install-project
+      - name: Run pytest
+        env:
+          DATABASE_URL: sqlite:///${{ runner.temp }}/backend-ci/app.db
+        run: uv run --no-sync pytest -q

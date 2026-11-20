@@ -16,9 +16,9 @@ FIX = {
 }
 
 
-def test_file_and_location_guidance_reaches_both_modes():
-    assert FIX_GUIDANCE in team_prompt("reviewer")
+def test_file_and_location_guidance_is_for_the_single_assistant():
     assert FIX_GUIDANCE in ASSISTANT_PROMPT
+    assert FIX_GUIDANCE not in team_prompt("reviewer")  # the Code Reviewer writes its fixes into the code itself
 
 
 @pytest.mark.parametrize("changes", [

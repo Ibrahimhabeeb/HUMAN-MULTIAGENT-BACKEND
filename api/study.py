@@ -1,34 +1,56 @@
-from typing import Annotated, get_args
+from typing import get_args
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Response
 from sqlalchemy.orm import Session
 
+from api.dependencies import Db
 from api.errors import run
-from db import get_db
 from schemas.questionnaire import QuestionnaireAnswers, QuestionnaireOut
 from schemas.study import (
     ConsentContent,
     ConsentRequest,
     InformationContent,
+    Mode,
     ModeRequest,
+    NextTaskRequest,
+    SessionToken,
     StartRequest,
     StudyState,
     TaskId,
 )
-from services import content, questionnaire, study, workspace
+from services import content, questionnaire, sessions, study, workspace
 
 router = APIRouter(prefix="/study", tags=["study"])
-
-Db = Annotated[Session, Depends(get_db)]
 
 # Every action returns the new study state, so the frontend always knows which screen to show.
 
 
 def _state(db: Session) -> StudyState:
+    state = study.get_state(db)
+    if state["screen"] == "start":
+        task_ids = get_args(TaskId)
+    elif state.get("needs_next_task"):
+        used_tasks = study.next_task_choices(db) or set()
+        task_ids = [task_id for task_id in get_args(TaskId) if task_id not in used_tasks]
+    else:
+        task_ids = []
     return StudyState(
-        **study.get_state(db),
-        available_tasks=[{"id": task_id, "label": workspace.task_label(task_id)} for task_id in get_args(TaskId)],
+        **state,
+        available_tasks=[workspace.task_info(task_id) for task_id in task_ids],
     )
+
+
+@router.post("/session")
+def create_session(body: ModeRequest, response: Response) -> SessionToken:
+    response.headers["Cache-Control"] = "no-store"
+    return SessionToken(token=run(lambda: sessions.create(body.mode)))
+
+
+def _new_session(db: Session, response: Response, mode: Mode) -> StudyState:
+    token = sessions.create(mode)
+    sessions.bind(db, token)
+    response.headers[sessions.HEADER] = token
+    return _state(db)
 
 
 @router.get("/state")
@@ -44,13 +66,13 @@ def start(db: Db, body: StartRequest) -> StudyState:
 
 @router.post("/continue")
 def continue_to_consent(db: Db) -> StudyState:
-    run(study.continue_to_consent)
+    run(lambda: study.continue_to_consent(db))
     return _state(db)
 
 
 @router.post("/decline")
 def decline(db: Db) -> StudyState:
-    run(study.decline)
+    run(lambda: study.decline(db))
     return _state(db)
 
 
@@ -66,6 +88,12 @@ def switch_mode(db: Db, body: ModeRequest) -> StudyState:
     return _state(db)
 
 
+@router.post("/part-two")
+def start_part_two(db: Db, body: NextTaskRequest) -> StudyState:
+    run(lambda: study.start_part_two(db, body.task_id))
+    return _state(db)
+
+
 @router.post("/done")
 def done(db: Db) -> StudyState:
     run(lambda: study.done(db))
@@ -73,15 +101,15 @@ def done(db: Db) -> StudyState:
 
 
 @router.post("/finish")
-def finish(db: Db) -> StudyState:
-    run(lambda: study.finish(db))
-    return _state(db)
+def finish(db: Db, response: Response) -> StudyState:
+    mode = run(lambda: study.finish(db))
+    return _new_session(db, response, mode)
 
 
 @router.post("/restart")
-def restart(db: Db) -> StudyState:
-    study.restart(db)
-    return _state(db)
+def restart(db: Db, response: Response) -> StudyState:
+    mode = run(lambda: study.restart(db))
+    return _new_session(db, response, mode)
 
 
 @router.get("/questionnaire")

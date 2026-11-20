@@ -1,15 +1,16 @@
-import ast
-from pathlib import PurePosixPath
+import re
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
 from agents.context import AgentContext, Proposal, numbered
-from schemas.approval import PROPOSAL_SCHEMAS, SUGGESTIONS
+from schemas.approval import PROPOSAL_SCHEMAS
 from schemas.security_state import SecurityState, Severity, StateItem
+from services.fix_validation import invalid_python_edit
 
 # Which tools each agent gets. Reading tools only look at the run's snapshot; every other tool records a proposal
 # that waits for the human's approval, except a suggested risk, which goes straight into the security state.
+# The Code Reviewer's write_fix isn't here: only the follow-up after an accepted vulnerability gets it.
 TOOLS_FOR: dict[str, list[str]] = {
     "planner": ["list_files", "read_file", "read_task_description"],
     "threat_modeller": [
@@ -20,18 +21,16 @@ TOOLS_FOR: dict[str, list[str]] = {
         "propose_assumption",
         "propose_risk",
     ],
-    # An approved fix becomes a mitigation for the vulnerability it fixes.
+    # mark_resolved marks a planned mitigation implemented.
     "reviewer": [
         "list_files",
         "read_file",
         "read_task_description",
         "get_security_state",
         "propose_vulnerability",
-        "suggest_fix",
         "mark_resolved",
     ],
-    # Tests are written against the approved vulnerabilities and the task's interface, not from the code.
-    "verifier": ["read_task_description", "list_test_files", "read_test_file", "get_security_state", "propose_test"],
+    # The Test/Verifier has no tools: it runs the task's unit tests without the model.
     "assistant": ["list_files", "read_file", "suggest_fix", "propose_test"],
 }
 
@@ -60,8 +59,17 @@ def _risk_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> st
 
 
 def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    description = proposal["description"]
+    if re.search(r"\bno vulnerabilities? (?:were )?found\b", description, re.IGNORECASE) or re.search(
+        r"\bno\b[^.!?]{0,100}\b(?:weakness(?:es)?|vulnerabilit(?:y|ies))\b[^.!?]{0,30}\bfound\b",
+        description,
+        re.IGNORECASE,
+    ):
+        return "the description says no security weakness was found. Report a clean review in chat, without a proposal."
     for v in state.vulnerabilities:
         if _same_place(proposal, v.model_dump()):
+            if v.status == "rejected":
+                return f"the developer rejected this vulnerability ({v.id}). Don't propose it again."
             return f"this is the same as {v.id}, which is already in the security state."
     for earlier in ctx.earlier:
         if earlier.action_type == "propose_vulnerability" and _same_place(proposal, earlier.proposal):
@@ -75,75 +83,52 @@ def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: di
 
 def _fix_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
     target = proposal["vulnerability"].strip()
-    vulnerability = next((v for v in state.vulnerabilities if v.id == target), None)
-    if vulnerability is None:
+    accepted = [v for v in state.vulnerabilities if v.status == "accepted"]
+    if not any(v.id == target for v in accepted):
         return (
-            f"{target} is not an approved vulnerability (approved: {_ids(state.vulnerabilities)}). "
-            "Suggest fixes only for vulnerabilities the developer has approved."
+            f"{target} is not an accepted vulnerability (accepted: {_ids(accepted)}). "
+            "Suggest fixes only for vulnerabilities the developer has accepted."
         )
-    if vulnerability.status == "fixed":
-        return f"{target} is already fixed."
     mitigation = next((m.id for m in state.mitigations if m.vulnerability_id == target), None)
     if mitigation:
         return f"{target} already has a mitigation ({mitigation})."
-    for earlier in ctx.earlier:
-        if earlier.action_type == "suggest_fix" and earlier.proposal.get("vulnerability") == target:
-            if earlier.status == "pending":
-                return f"a fix for {target} is already waiting for the developer's decision (proposal #{earlier.id})."
-            if earlier.proposal.get("code") == proposal["code"]:
-                return f"the developer rejected this fix (proposal #{earlier.id}). Don't suggest it again."
-    if any(p.action_type == "suggest_fix" and p.proposal.get("vulnerability") == target for p in ctx.proposals):
-        return f"you already suggested a fix for {target} in this reply."
-    return None
-
-
-def _test_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
-    unknown = [v for v in proposal["vulnerability_ids"] if not any(x.id == v for x in state.vulnerabilities)]
-    if unknown:
-        approved = _ids(state.vulnerabilities)
-        return f"these are not approved vulnerabilities: {', '.join(unknown)} (approved: {approved})."
-    original = ctx.files.get(proposal["path"])
-    if original is not None:
-        if original == proposal["content"]:
-            return "this test file is unchanged. Add regression tests for the approved vulnerability."
-        try:
-            before = [ast.dump(node) for node in ast.parse(original).body]
-            after = {ast.dump(node) for node in ast.parse(proposal["content"]).body}
-        except SyntaxError:
-            return "the existing or proposed test file has invalid Python syntax. Use a separate valid test file."
-        if any(node not in after for node in before):
-            return "preserve all existing tests, fixtures, imports and setup; add the new regression tests."
-    for earlier in ctx.earlier:
-        if earlier.action_type == "propose_test" and earlier.proposal.get("path") == proposal["path"]:
-            if earlier.status == "pending":
-                return f"{proposal['path']} is already waiting for the developer's decision (proposal #{earlier.id})."
-            if earlier.proposal.get("content") == proposal["content"]:
-                return f"the developer rejected this test (proposal #{earlier.id}). Don't propose it again."
-    if any(p.action_type == "propose_test" and p.proposal.get("path") == proposal["path"] for p in ctx.proposals):
-        return f"you already proposed {proposal['path']} in this reply."
+    if any(p.action_type == "write_fix" and p.proposal.get("vulnerability") == target for p in ctx.proposals):
+        return f"you already wrote a fix for {target} in this reply."
+    file = proposal["file"]
+    if file not in ctx.files:
+        return f"there is no file called {file}. Use list_files to see the files."
+    matches = ctx.files[file].count(proposal["find"])
+    if matches != 1:
+        return (
+            f"find must match the code in {file} exactly once, but it matched {matches} times. Copy it exactly from "
+            "the file, without the line numbers, with enough of the surrounding lines to be unique."
+        )
+    content = ctx.files[file]
+    updated = content.replace(proposal["find"], proposal["replace"], 1)
+    if problem := invalid_python_edit(file, content, updated):
+        return problem
     return None
 
 
 def _resolve_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
     item_id = proposal["item_id"]
-    item = next((i for i in [*state.risks, *state.vulnerabilities] if i.id == item_id), None)
-    if item is None:
-        return f"{item_id} is not in the security state."
-    if item.status != "open":
-        return f"{item_id} is already {item.status}."
+    mitigation = next((m for m in state.mitigations if m.id == item_id), None)
+    if mitigation is None:
+        return f"{item_id} is not a mitigation in the security state (mitigations: {_ids(state.mitigations)})."
+    if mitigation.status == "implemented":
+        return f"{item_id} is already implemented."
     for earlier in ctx.earlier:
         if (earlier.status, earlier.action_type, earlier.proposal.get("item_id")) == ("pending", "mark_resolved", item_id):
-            return f"marking {item_id} as resolved is already waiting for the developer's decision."
+            return f"marking {item_id} as implemented is already waiting for the developer's decision."
     if any(p.action_type == "mark_resolved" and p.proposal.get("item_id") == item_id for p in ctx.proposals):
-        return f"you already proposed marking {item_id} as resolved in this reply."
+        return f"you already proposed marking {item_id} as implemented in this reply."
     return None
 
 
 _CHECKS = {
     "propose_risk": _risk_problem,
     "propose_vulnerability": _vulnerability_problem,
-    "suggest_fix": _fix_problem,
-    "propose_test": _test_problem,
+    "write_fix": _fix_problem,
     "mark_resolved": _resolve_problem,
 }
 
@@ -156,23 +141,27 @@ def _problem(ctx: AgentContext, action_type: str, proposal: dict) -> str | None:
     return check(ctx, ctx.state, proposal) if check and ctx.state else None
 
 
-def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -> list[BaseTool]:
+def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None) -> list[BaseTool]:
     def record(action_type: str, **fields) -> str:
         try:
             data = PROPOSAL_SCHEMAS[action_type].model_validate({k: v for k, v in fields.items() if v is not None})
         except ValidationError as e:
             return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
-        if ctx.target_vulnerability:
-            if action_type == "suggest_fix" and data.vulnerability.strip() != ctx.target_vulnerability:
-                return f"Not recorded: this follow-up is only for {ctx.target_vulnerability}."
-            if action_type == "propose_test" and ctx.target_vulnerability not in data.vulnerability_ids:
-                return f"Not recorded: the test must cover {ctx.target_vulnerability}."
+        target = ctx.target_vulnerability
+        if target and action_type == "write_fix" and data.vulnerability.strip() != target:
+            reason = f"this follow-up is only for {target}."
+            ctx.rejected_fixes.append(reason)
+            return f"Not recorded: {reason}"
         problem = _problem(ctx, action_type, data.model_dump(mode="json"))
         if problem:
+            if action_type == "write_fix":
+                ctx.rejected_fixes.append(problem)
             return f"Not recorded: {problem}"
         ctx.proposals.append(Proposal(actor, action_type, data.model_dump(mode="json")))
-        if action_type in SUGGESTIONS and ctx.state:
+        if action_type == "propose_risk" and ctx.state:
             return "Recorded. It goes straight into the security state as a suggested risk."
+        if action_type == "write_fix":
+            return "Recorded. It goes straight into the code and into the security state as a mitigation."
         return "Recorded. It waits for the developer's approval."
 
     @tool
@@ -192,27 +181,9 @@ def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -
         """Read the task description (README.md), including the interface to implement."""
         return ctx.task_description
 
-    def test_paths() -> list[str]:
-        return sorted(
-            path for path in ctx.files
-            if path.startswith("tests/") and path.endswith(".py") and ".." not in PurePosixPath(path).parts
-        )
-
-    @tool
-    def list_test_files() -> str:
-        """List existing Python files under tests/, without exposing application source code."""
-        return "\n".join(test_paths()) or "No Python test files yet."
-
-    @tool
-    def read_test_file(path: str) -> str:
-        """Read an existing Python file under tests/ to reuse its imports, fixtures and test conventions."""
-        if path not in test_paths():
-            return "Only existing Python files under tests/ are available. Use list_test_files."
-        return numbered(ctx.files[path])
-
     @tool
     def get_security_state() -> str:
-        """Get the shared security state: assumptions, risks, vulnerabilities, mitigations and tests."""
+        """Get the shared security state: assumptions, risks, vulnerabilities, mitigations and unit test results."""
         return ctx.state.model_dump_json(indent=1, exclude={"counters"}) if ctx.state else "No security state."
 
     @tool
@@ -250,26 +221,30 @@ def make_tools(ctx: AgentContext, actor: str, *, only: set[str] | None = None) -
 
     @tool
     def suggest_fix(vulnerability: str, file: str, location: str, code: str, why: str) -> str:
-        """Suggest a fix: what it fixes (an approved vulnerability's id such as "V2" when there is a security state,
-        otherwise a short description), the full workspace-relative file path (e.g. "app/auth.py"), a precise
-        location (function/class and lines or nearby statement, and whether to replace or insert), the code,
-        and why. For a new file, say to create it in location. Never omit the file path or location."""
+        """Suggest a fix: a short description of what it fixes, the full workspace-relative file path
+        (e.g. "app/auth.py"), a precise location (function/class and lines or nearby statement, and whether to
+        replace or insert), the code, and why. For a new file, say to create it in location. Never omit the file
+        path or location."""
         return record("suggest_fix", vulnerability=vulnerability, file=file, location=location, code=code, why=why)
 
     @tool
+    def write_fix(vulnerability: str, file: str, find: str, replace: str, why: str) -> str:
+        """Write the fix for an accepted vulnerability straight into the developer's code: its id (e.g. "V2"), the
+        full workspace-relative file path (e.g. "app/auth.py"), the existing code to replace (find), the code that
+        replaces it (replace), and why. find is copied exactly from the current file, without the line numbers, and
+        must match exactly once. To add code, put a nearby line in find and keep that line in replace."""
+        return record("write_fix", vulnerability=vulnerability, file=file, find=find, replace=replace, why=why)
+
+    @tool
     def mark_resolved(item_id: str, reason: str) -> str:
-        """Propose marking a vulnerability (V1) as fixed or a risk (R2) as mitigated, with the reason."""
+        """Propose marking a planned mitigation (e.g. M1) as implemented, once the developer's current code contains
+        that fix, with the reason."""
         return record("mark_resolved", item_id=item_id, reason=reason)
 
     @tool
-    def propose_test(path: str, content: str, vulnerability_ids: list[str] | None = None) -> str:
-        """Propose a pytest file, e.g. path "tests/test_security_login.py", and the vulnerability ids it tests."""
-        ids = list(vulnerability_ids or [])
-        if ctx.state:
-            for existing in ctx.state.tests:
-                if existing.path == path:
-                    ids = list(dict.fromkeys([*existing.vulnerability_ids, *ids]))
-        return record("propose_test", path=path, content=content, vulnerability_ids=ids, base_content=ctx.files.get(path))
+    def propose_test(path: str, content: str) -> str:
+        """Propose a pytest file, e.g. path "tests/test_login.py"."""
+        return record("propose_test", path=path, content=content, base_content=ctx.files.get(path))
 
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
-    return [available[name] for name in TOOLS_FOR[actor] if only is None or name in only]
+    return [available[name] for name in names or TOOLS_FOR[actor]]

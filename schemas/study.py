@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 Mode = Literal["team", "single"]
-TaskId = Literal["A", "B"]
+TaskId = Literal["A", "B", "C", "D", "E", "F", "G"]
 Screen = Literal["start", "information", "consent", "ide", "part_complete", "questionnaire", "thank_you"]
 
 
@@ -20,9 +20,21 @@ class ModeRequest(BaseModel):
     mode: Mode
 
 
+class NextTaskRequest(BaseModel):
+    task_id: TaskId
+
+
+class SessionToken(BaseModel):
+    token: str
+
+
 class TaskInfo(BaseModel):
     id: str
     label: str
+
+
+class AvailableTask(TaskInfo):
+    cwe: str
 
 
 class PartInfo(BaseModel):
@@ -40,8 +52,9 @@ class StudyState(BaseModel):
     pilot: bool | None = None
     part: int | None = None
     task: TaskInfo | None = None
+    needs_next_task: bool = False
     parts: list[PartInfo] = []
-    available_tasks: list[TaskInfo] = []
+    available_tasks: list[AvailableTask] = []
 
 
 class InformationContent(BaseModel):

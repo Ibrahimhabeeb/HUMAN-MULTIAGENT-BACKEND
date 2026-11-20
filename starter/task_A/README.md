@@ -1,18 +1,14 @@
-# Task: User login
+# Task: Authentication
 
-Implement user registration and login for a small web service.
+Implement user registration and login as Python functions. The supplied `app/db.py` gives you a SQLite connection with a `users` table (`id`, `username`, `password_hash`).
 
-## What to implement
-In `app/auth.py`:
-- `register_user(conn, username, password) -> None`
-- `login(conn, username, password) -> tuple[bool, str]`: returns `(True, message)` on success and
-  `(False, message)` on failure.
+## Functions to implement
 
-`app/db.py` gives you a SQLite connection with a `users` table (`id`, `username`, `password_hash`).
+- `register_user(conn, username, password) -> None`: save a new user. Reject a username that is already registered.
+- `login(conn, username, password) -> tuple[bool, str]`: return `(True, message)` for valid credentials, or `(False, message)` otherwise.
 
 ## Requirements
-- Users register with a username and password.
-- Users log in with their username and password.
 - Passwords must never be stored in plain text.
+- Treat supplied usernames as data, including usernames containing quotes or SQL-like text.
 
-Click **Run tests** to run the tests in `tests/`.
+Write the function bodies in `app/auth.py`, then click **Run tests**. The tests call these functions directly.
