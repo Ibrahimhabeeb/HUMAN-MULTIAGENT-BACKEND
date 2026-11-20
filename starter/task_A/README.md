@@ -1,29 +1,14 @@
 # Task: Authentication
 
-Implement user registration and login for a small web service: an HTTP API built with FastAPI.
+Implement user registration and login as Python functions. The supplied `app/db.py` gives you a SQLite connection with a `users` table (`id`, `username`, `password_hash`).
 
-## What to implement
-In `app/auth.py`, write the body of the two endpoints:
+## Functions to implement
 
-| Method | Path | Request body (JSON) | Success | Failure |
-|---|---|---|---|---|
-| `POST` | `/auth/register` | `{"username": "...", "password": "..."}` | `201 Created` with `{"id": 1, "username": "alice"}` | `409 Conflict` if the username is already taken |
-| `POST` | `/auth/login` | `{"username": "...", "password": "..."}` | `200 OK` with `{"message": "..."}` | `401 Unauthorized` if the username or password is wrong |
-
-Each endpoint receives:
-- `body`: the JSON request body, already read into a `Credentials` object (`body.username`, `body.password`).
-  If a field is missing, FastAPI answers `422` before your code runs.
-- `conn`: a SQLite connection with a `users` table (`id`, `username`, `password_hash`). See `app/db.py`.
-
-Return a dictionary to send it as the JSON response. To send an error response, raise
-`HTTPException(status_code=..., detail="...")`; FastAPI turns it into `{"detail": "..."}`.
-
-`app/main.py` creates the app and connects the endpoints. You don't need to change it.
+- `register_user(conn, username, password) -> None`: save a new user. Reject a username that is already registered.
+- `login(conn, username, password) -> tuple[bool, str]`: return `(True, message)` for valid credentials, or `(False, message)` otherwise.
 
 ## Requirements
-- Users register with a username and password.
-- Users log in with their username and password.
 - Passwords must never be stored in plain text.
+- Treat supplied usernames as data, including usernames containing quotes or SQL-like text.
 
-Click **Run tests** to run the tests in `tests/`. They send HTTP requests to the app with FastAPI's
-`TestClient`, inside the test process; no server needs to be started.
+Write the function bodies in `app/auth.py`, then click **Run tests**. The tests call these functions directly.

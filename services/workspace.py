@@ -1,7 +1,9 @@
 import json
 import shutil
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from threading import BoundedSemaphore
 
 from sqlalchemy.orm import Session
 
@@ -10,10 +12,14 @@ from models import Workspace
 from services.errors import ConflictError, NotFoundError
 from services.events import log_event
 from services.paths import MAX_FILES, clean_path, resolve_inside
+from services.workspace_lock import locked, mutation
+
+MAX_WORKSPACE_BYTES = 2 * 1024 * 1024
+_snapshot_slots = BoundedSemaphore(5)
 
 # Created by running tests; never shown, copied or snapshotted.
 IGNORED = {"__pycache__", ".pytest_cache"}
-_ignore = shutil.ignore_patterns(*IGNORED)
+_ignore = shutil.ignore_patterns(*IGNORED, ".save-*")
 
 
 def _directory_name(ws: Workspace) -> str:
@@ -51,11 +57,28 @@ def create_from_starter(ws: Workspace) -> None:
 
 
 def snapshot(ws: Workspace, reason: str) -> Path:
+    if not _snapshot_slots.acquire(blocking=False):
+        raise ConflictError("The study is busy saving submissions. Please try again shortly.")
+    try:
+        with locked(ws):
+            return _snapshot(ws, reason)
+    finally:
+        _snapshot_slots.release()
+
+
+def _snapshot(ws: Workspace, reason: str) -> Path:
+    workspace_size(ws)
     base = Path(get_settings().snapshots_dir) / folder(ws).name
     base.mkdir(parents=True, exist_ok=True)
     number = sum(1 for p in base.iterdir() if p.is_dir()) + 1
-    destination = base / f"{number:02d}_{reason}"
-    shutil.copytree(folder(ws), destination, ignore=_ignore)
+    while True:
+        destination = base / f"{number:02d}_{reason}"
+        try:
+            destination.mkdir()
+            break
+        except FileExistsError:
+            number += 1
+    shutil.copytree(folder(ws), destination, ignore=_ignore, dirs_exist_ok=True)
     return destination
 
 
@@ -65,7 +88,7 @@ def snapshot(ws: Workspace, reason: str) -> Path:
 def _entries(root: Path) -> Iterator[tuple[str, Path]]:
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
-        if not any(part in IGNORED for part in relative.parts):
+        if not any(part in IGNORED or part.startswith(".save-") for part in relative.parts):
             yield relative.as_posix(), path
 
 
@@ -90,6 +113,20 @@ def read_file(ws: Workspace, path: str) -> dict:
 # ---- changing (only through an open, unfinished part) ------------------------------------
 
 
+def workspace_size(ws: Workspace, replacement: Path | None = None, new_size=0) -> int:
+    size = new_size
+    for _, path in _entries(folder(ws)):
+        if path.is_symlink():
+            raise ConflictError("Workspace files cannot be symbolic links")
+        if path.is_file() and path.resolve() != replacement:
+            size += path.stat().st_size
+        if size > MAX_WORKSPACE_BYTES:
+            raise ConflictError("A workspace can contain at most 2 MiB of files. Remove large files before continuing.")
+    if size > MAX_WORKSPACE_BYTES:
+        raise ConflictError("A workspace can contain at most 2 MiB of files. Remove large files before continuing.")
+    return size
+
+
 def _check_parents_are_folders(root: Path, target: Path) -> None:
     for parent in target.parents:
         if parent == root:
@@ -103,6 +140,7 @@ def _log(db: Session, ws: Workspace, type: str, detail: dict) -> None:
     db.commit()
 
 
+@mutation
 def write_text(ws: Workspace, path: str, content: str) -> bool:
     """Writes a file into the workspace; returns True if it was created. Does not log or commit."""
     root = folder(ws).resolve()
@@ -111,10 +149,19 @@ def write_text(ws: Workspace, path: str, content: str) -> bool:
         raise ConflictError(f"{path} is a folder")
     _check_parents_are_folders(root, target)
     created = not target.exists()
+    workspace_size(ws, replacement=target, new_size=len(content.encode("utf-8")))
     if created and sum(1 for _ in _entries(root)) >= MAX_FILES:
         raise ConflictError(f"A workspace can have at most {MAX_FILES} files and folders")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8", newline="")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", prefix=".save-", dir=target.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        temporary.replace(target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return created
 
 
@@ -124,6 +171,7 @@ def write_file(db: Session, ws: Workspace, path: str, content: str) -> dict:
     return {"type": "file", "content": content}
 
 
+@mutation
 def create_folder(db: Session, ws: Workspace, path: str) -> dict:
     root = folder(ws).resolve()
     target = resolve_inside(root, path)
@@ -135,6 +183,7 @@ def create_folder(db: Session, ws: Workspace, path: str) -> dict:
     return {"type": "folder"}
 
 
+@mutation
 def delete_path(db: Session, ws: Workspace, path: str) -> None:
     target = resolve_inside(folder(ws), path)
     if not target.exists():
@@ -146,6 +195,7 @@ def delete_path(db: Session, ws: Workspace, path: str) -> None:
     _log(db, ws, "file_deleted", {"path": clean_path(path)})
 
 
+@mutation
 def rename_path(db: Session, ws: Workspace, from_path: str, to_path: str) -> None:
     root = folder(ws).resolve()
     source, target = resolve_inside(root, from_path), resolve_inside(root, to_path)

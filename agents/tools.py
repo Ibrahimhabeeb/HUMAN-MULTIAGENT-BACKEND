@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from agents.context import AgentContext, Proposal, numbered
 from schemas.approval import PROPOSAL_SCHEMAS
 from schemas.security_state import SecurityState, Severity, StateItem
+from services.fix_validation import invalid_python_edit
 
 # Which tools each agent gets. Reading tools only look at the run's snapshot; every other tool records a proposal
 # that waits for the human's approval, except a suggested risk, which goes straight into the security state.
@@ -102,6 +103,10 @@ def _fix_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str
             f"find must match the code in {file} exactly once, but it matched {matches} times. Copy it exactly from "
             "the file, without the line numbers, with enough of the surrounding lines to be unique."
         )
+    content = ctx.files[file]
+    updated = content.replace(proposal["find"], proposal["replace"], 1)
+    if problem := invalid_python_edit(file, content, updated):
+        return problem
     return None
 
 
@@ -144,9 +149,13 @@ def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None)
             return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
         target = ctx.target_vulnerability
         if target and action_type == "write_fix" and data.vulnerability.strip() != target:
-            return f"Not recorded: this follow-up is only for {target}."
+            reason = f"this follow-up is only for {target}."
+            ctx.rejected_fixes.append(reason)
+            return f"Not recorded: {reason}"
         problem = _problem(ctx, action_type, data.model_dump(mode="json"))
         if problem:
+            if action_type == "write_fix":
+                ctx.rejected_fixes.append(problem)
             return f"Not recorded: {problem}"
         ctx.proposals.append(Proposal(actor, action_type, data.model_dump(mode="json")))
         if action_type == "propose_risk" and ctx.state:

@@ -11,6 +11,7 @@ UnitTestStatus = Literal["open", "passed", "failed"]  # open: not run yet
 
 Category = Literal["assumptions", "risks", "vulnerabilities", "mitigations", "tests"]
 HumanCategory = Literal["assumptions", "risks", "vulnerabilities", "mitigations"]  # the ones the human edits directly
+HumanAddCategory = Literal["vulnerabilities", "mitigations"]
 
 
 def utc_now() -> datetime:

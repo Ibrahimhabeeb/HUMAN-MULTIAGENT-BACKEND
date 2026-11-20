@@ -1,12 +1,22 @@
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from models import ConsentRecord, Participant, StudySession, SurveyResponse, Workspace
 from models.common import as_utc, utc_now
 from schemas.study import Mode, Screen, TaskId
-from services import content, runner, sessions, state_service, workspace
+from services import (
+    content,
+    runner,
+    sessions,
+    state_service,
+    submissions,
+    workspace,
+)
 from services.errors import ConflictError
 from services.events import log_event
+from services.workspace_lock import locked
 
 
 def reset_memory() -> None:
@@ -56,7 +66,12 @@ def _open_mode(db: Session, participant: Participant, mode: Mode, task_id: TaskI
     return ws
 
 
-def _mark_done(db: Session, ws: Workspace) -> None:
+def _mark_done(db: Session, ws: Workspace) -> Path:
+    with locked(ws, editable=True):
+        return _finish_snapshot(db, ws)
+
+
+def _finish_snapshot(db: Session, ws: Workspace) -> Path:
     ws.done_at = utc_now()
     ws.done_reason = "done"
     saved = workspace.snapshot(ws, "done")
@@ -68,7 +83,10 @@ def _mark_done(db: Session, ws: Workspace) -> None:
         mode=ws.mode,
         detail={"part": ws.part, "task_id": ws.task_id, "seconds": seconds, "snapshot": saved.name},
     )
+    log_event(db, ws.participant_code, "submission_assessment_pending", actor="system", mode=ws.mode,
+              detail={"workspace_id": ws.id, "snapshot": saved.name})
     db.commit()
+    return saved
 
 
 def current_workspace(db: Session) -> Workspace:
@@ -91,8 +109,8 @@ def editable_workspace(db: Session) -> Workspace:
 def done(db: Session) -> None:
     ws = editable_workspace(db)
     # The Test/Verifier runs the unit tests on the final code. In single mode the results are only logged.
-    runner.run_tests(db, ws, trigger="finish")
-    _mark_done(db, ws)
+    saved = _mark_done(db, ws)
+    submissions.assess(db, ws, saved)
 
 
 # ---- which screen to show ---------------------------------------------------------------------

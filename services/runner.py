@@ -1,11 +1,13 @@
 import ast
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import Literal, get_args
 
 from sqlalchemy.orm import Session
@@ -18,13 +20,14 @@ from services.events import log_event
 
 MAX_OUTPUT_CHARS = 4000
 MAX_DETAILS_CHARS = 3000
-_SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^LLM_|^OPENAI|^ANTHROPIC|^PYTEST", re.IGNORECASE)
+_SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^DATABASE_URL$|^LLM_|^OPENAI|^ANTHROPIC|^PYTEST", re.IGNORECASE)
 _EXCEPTION = re.compile(r"^\s*(?:E\s+)?(?P<type>[\w.]+(?:Error|Exception)):\s*(?P<message>[^\n]*)", re.MULTILINE)
 _SYNTAX_LOCATION = re.compile(r'^\s*(?:E\s+)?File "(?P<file>[^"\n]+)", line (?P<line>\d+)', re.MULTILINE)
 _FRAME_LOCATION = re.compile(r"^(?P<file>[^\n]+\.py):(?P<line>\d+): in ", re.MULTILINE)
 _PROBLEMS = {"failure": "failed", "error": "error", "skipped": "skipped"}
 # The run's own pytest settings, so the backend's (pyproject.toml) never apply to a workspace.
 _CONFIG = "[pytest]\njunit_family = xunit1\n"
+_admission = BoundedSemaphore(5)
 # A Ctrl+C sent to the server's console (uvicorn's reload sends one on Windows) must not stop the tests.
 _OWN_PROCESS_GROUP: dict = (
     {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
@@ -81,7 +84,28 @@ def _case(element: ET.Element, folder: Path) -> CaseResult:
 
 
 def _pytest(folder: Path) -> tuple[int | None, list[CaseResult], str]:
+    if not _admission.acquire(blocking=False):
+        return 3, [], "The test service is busy. Please try running the tests again shortly."
+    try:
+        return _execute_pytest(folder)
+    finally:
+        _admission.release()
+
+
+def _execute_pytest(folder: Path) -> tuple[int | None, list[CaseResult], str]:
     # Returns pytest's exit code (None if it timed out), the result of each test, and the end of its output.
+    settings = get_settings()
+    if settings.test_runner_url:
+        from services import sandbox
+
+        try:
+            result = sandbox.run(folder)
+            cases = [_case(element, Path("/workspace")) for element in ET.fromstring(result["report"]).iter("testcase")] if result["report"] else []
+            return result["code"], cases, result["output"][-MAX_OUTPUT_CHARS:]
+        except (*sandbox.UNAVAILABLE, ET.ParseError):
+            return 3, [], "The isolated test runner is unavailable. Please try running the tests again."
+    if settings.app_env == "production":
+        return 3, [], "Tests require the isolated production runner. No code was executed."
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
         config, report = Path(scratch) / "pytest.ini", Path(scratch) / "results.xml"
         config.write_text(_CONFIG, encoding="utf-8")
@@ -149,11 +173,19 @@ def _record_results(ws: Workspace, cases: list[CaseResult], failure: str | None)
 Trigger = Literal["button", "review", "chat", "finish"]
 
 
-def run_tests(db: Session, ws: Workspace, trigger: Trigger = "button") -> dict:
+def run_tests(db: Session, ws: Workspace, trigger: Trigger = "button", *, saved_snapshot: Path | None = None) -> dict:
     # Clicking Run tests is the human's approval to run them. The Test/Verifier also runs them on a review and when
     # the part is finished; in single mode those runs are only logged, not shown.
-    snapshot = workspace.snapshot(ws, "tests")
-    code, cases, output = _pytest(workspace.folder(ws).resolve())
+    snapshot = saved_snapshot or workspace.snapshot(ws, "tests")
+    # A run always uses the recorded revision, even if an editor save arrives during execution.
+    if get_settings().test_runner_url:
+        # The broker copies these inputs into a disposable container; it cannot modify this snapshot.
+        code, cases, output = _pytest(snapshot.resolve())
+    else:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
+            execution = Path(scratch) / "workspace"
+            shutil.copytree(snapshot, execution)
+            code, cases, output = _pytest(execution.resolve())
     counts = {outcome: sum(case.outcome == outcome for case in cases) for outcome in get_args(Outcome)}
     status, message = _summary(code, counts)
 

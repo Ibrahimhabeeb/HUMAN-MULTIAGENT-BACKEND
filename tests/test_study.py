@@ -136,11 +136,13 @@ def test_questionnaire_opens_when_both_parts_are_done(client, team):
     ]
 
 
-def test_done_runs_the_unit_tests_then_saves_a_snapshot(client, db, team):
+def test_done_tests_the_same_final_snapshot_as_the_hidden_assessment(client, db, team):
     client.post("/study/done")
     (run,) = db.query(Event).filter(Event.type == "tests_run").all()
-    assert (run.actor, run.detail["trigger"], run.detail["snapshot"]) == ("verifier", "finish", "01_tests")
-    assert (Path(get_settings().snapshots_dir) / "P01_A_team" / "02_done" / "app" / "auth.py").is_file()
+    assert (run.actor, run.detail["trigger"], run.detail["snapshot"]) == ("verifier", "finish", "01_done")
+    assessment = db.query(Event).filter(Event.type == "security_tests_run").one()
+    assert assessment.detail["snapshot"] == run.detail["snapshot"]
+    assert (Path(get_settings().snapshots_dir) / "P01_A_team" / "01_done" / "app" / "auth.py").is_file()
 
 
 def test_done_twice_is_refused(client, team):

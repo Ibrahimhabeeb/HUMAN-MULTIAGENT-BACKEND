@@ -19,7 +19,7 @@ class Approval(Base):
     action_type: Mapped[str] = mapped_column(String(30))
     proposal: Mapped[dict] = mapped_column(JSONData)  # as proposed
     final_proposal: Mapped[dict | None] = mapped_column(JSONData)  # as applied; empty if rejected
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | approved | rejected | suggested
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # also written or undone for reviewer edits
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result: Mapped[dict | None] = mapped_column(JSONData)  # e.g. {"item_id": "R3"} or {"path": "tests/test_x.py"}

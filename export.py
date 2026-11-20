@@ -1,11 +1,13 @@
 """Researcher only: writes results/survey.csv, one row per participant, for analysis. With PostgreSQL it also writes
 each analysis view (migrations/versions/*_analysis_views.py) to results/<view>.csv.
 
-Pilot participants (X codes) and withdrawn participants are left out.
+Pilot participants (X codes) and withdrawn participants are left out by default.
 
     uv run python export.py
+    uv run python export.py --include-pilots  # presentation/demo export only
 """
 
+import argparse
 import csv
 from pathlib import Path
 
@@ -17,17 +19,22 @@ from models import Participant, SurveyResponse, Workspace
 from services import questionnaire
 
 OUTPUT = Path("results/survey.csv")
-VIEWS = ["v_part_summary", "v_vulnerability_outcomes", "v_unit_test_results", "v_survey", "v_survey_paired"]
+VIEWS = [
+    "v_part_summary", "v_vulnerability_outcomes", "v_unit_test_results", "v_survey", "v_survey_paired",
+    "v_security_state_inventory", "v_security_state_decisions",
+]
 
 
 def column(condition: str, item: str) -> str:
     return item if condition == "none" else f"{item}_{condition}"
 
 
-def export(db: Session, path: Path = OUTPUT) -> int:
+def export(db: Session, path: Path = OUTPUT, *, include_pilots: bool = False) -> int:
     questions = questionnaire.asked(questionnaire.load())
     columns = ["participant", "first_mode", *(column(c, item) for c, item in questions)]
-    participants = select(Participant).where(~Participant.code.startswith("X"), Participant.status != "withdrawn")
+    participants = select(Participant).where(Participant.status != "withdrawn", ~Participant.code.startswith("SYN"))
+    if not include_pilots:
+        participants = participants.where(~Participant.code.startswith("X"))
 
     rows = []
     for participant in db.scalars(participants.order_by(Participant.n)):
@@ -49,12 +56,13 @@ def export(db: Session, path: Path = OUTPUT) -> int:
     return len(rows)
 
 
-def export_views(db: Session, folder: Path = OUTPUT.parent) -> dict[str, int]:
+def export_views(db: Session, folder: Path = OUTPUT.parent, *, include_pilots: bool = False) -> dict[str, int]:
     # PostgreSQL only: the views are created by the migrations. Returns the rows written per view.
     written = {}
     folder.mkdir(parents=True, exist_ok=True)
     for view in VIEWS:
-        query = text(f"SELECT * FROM {view} WHERE NOT pilot AND participant_status <> 'withdrawn'")  # fixed names only
+        pilot_filter = "" if include_pilots else " AND NOT pilot"
+        query = text(f"SELECT * FROM {view} WHERE participant_status <> 'withdrawn' AND participant_code NOT LIKE 'SYN%'{pilot_filter}")  # fixed names only
         result = db.execute(query)
         rows = result.all()
         with (folder / f"{view}.csv").open("w", newline="", encoding="utf-8") as f:
@@ -66,10 +74,13 @@ def export_views(db: Session, folder: Path = OUTPUT.parent) -> dict[str, int]:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Export study results to CSV files.")
+    parser.add_argument("--include-pilots", action="store_true", help="include X-code pilot data for a demo export")
+    args = parser.parse_args()
     init_db()
     with SessionLocal() as session:
-        count = export(session)
+        count = export(session, include_pilots=args.include_pilots)
         print(f"Wrote {count} participant(s) to {OUTPUT}")
         if session.get_bind().dialect.name == "postgresql":
-            for view, rows in export_views(session).items():
+            for view, rows in export_views(session, include_pilots=args.include_pilots).items():
                 print(f"Wrote {rows} row(s) to {OUTPUT.parent / view}.csv")

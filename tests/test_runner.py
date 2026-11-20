@@ -75,12 +75,12 @@ def test_team_mode_keeps_each_unit_tests_latest_result(client, db, team):
     before = unit_tests(client)
     assert {name: status for name, (_, status, _) in before.items()} == dict.fromkeys(functional, "open")
 
-    run_tests(client)  # the starter's endpoints answer 501, so every test fails
+    run_tests(client)  # the starter functions are not implemented yet, so every test fails
     after = unit_tests(client)
     assert {name: (test_id, status) for name, (test_id, status, _) in after.items()} == {
         name: (before[name][0], "failed") for name in functional  # same ids: the run replaced each result
     }
-    assert "501" in after["test_wrong_password_is_refused"][2]
+    assert "NotImplementedError" in after["test_wrong_password_is_refused"][2]
     run = db.query(Event).filter(Event.type == "tests_run").one()
     assert (run.actor, run.detail["trigger"]) == ("human", "button")
 
@@ -148,37 +148,23 @@ def test_valid_login_code_can_use_bcrypt_in_the_workspace_environment(client, si
     write(client, "app/auth.py", '''import sqlite3
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-
-from app.db import get_db
-
-router = APIRouter(prefix="/auth")
 
 
-class Credentials(BaseModel):
-    username: str
-    password: str
-
-
-@router.post("/register", status_code=201)
-def register(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt(rounds=4)).decode()
+def register_user(conn, username, password):
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=4)).decode()
     try:
-        cursor = conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (body.username, hashed))
+        conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed))
         conn.commit()
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as exc:
         conn.rollback()
-        raise HTTPException(status_code=409, detail="Username already taken")
-    return {"id": cursor.lastrowid, "username": body.username}
+        raise ValueError("Username already taken") from exc
 
 
-@router.post("/login")
-def login(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (body.username,)).fetchone()
-    if row is None or not bcrypt.checkpw(body.password.encode(), row["password_hash"].encode()):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    return {"message": "Logged in"}
+def login(conn, username, password):
+    row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone()
+    if row is None or not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
+        return False, "Invalid username or password"
+    return True, "Logged in"
 ''')
     result = run_tests(client).json()
     assert result["status"] == "passed"

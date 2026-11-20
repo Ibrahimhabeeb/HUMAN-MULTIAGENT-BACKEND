@@ -1,0 +1,137 @@
+name: secure-coding-room
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: study
+      POSTGRES_USER: study
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=40"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [database]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U study -d study"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  runner:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.runner
+    restart: unless-stopped
+    group_add: ["${DOCKER_GID:-0}"]
+    environment:
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?Set RUNNER_TOKEN in .env.production}
+      TEST_TIMEOUT_SECONDS: "60"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [execution]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    logging: *logging
+
+  api:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://study:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/study
+      LLM_MODEL: ${LLM_MODEL:?Set LLM_MODEL in .env.production}
+      LLM_API_KEY: ${LLM_API_KEY:?Set LLM_API_KEY in .env.production}
+      ALLOWED_HOSTS: '["${DOMAIN:?Set DOMAIN in .env.production}", "localhost", "127.0.0.1", "api"]'
+      FRONTEND_ORIGINS: '["https://${DOMAIN:?Set DOMAIN}"]'
+      API_DOCS_ENABLED: "false"
+      CONTENT_DIR: /app/content
+      STARTER_DIR: /app/starter
+      WORKSPACES_DIR: /data/workspaces
+      SNAPSHOTS_DIR: /data/snapshots
+      TEST_RUNNER_URL: http://runner:9000
+      TEST_RUNNER_TOKEN: ${RUNNER_TOKEN:?Set RUNNER_TOKEN}
+      TEST_TIMEOUT_SECONDS: "60"
+    volumes:
+      - study_data:/data
+    networks: [web, database, execution, outbound]
+    read_only: true
+    tmpfs:
+      - /tmp:size=96m,mode=1777
+      - /home/study/.cache:size=32m,uid=10001,gid=10001,mode=0700
+    mem_limit: 640m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      db:
+        condition: service_healthy
+      runner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+
+  frontend:
+    build: ../human-agent-frontend
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+      TLS_EMAIL: ${TLS_EMAIL:?Set TLS_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [web, outbound]
+    mem_limit: 128m
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+  test-image:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.tests
+    image: secure-coding-room-tests:local
+    network_mode: none
+
+networks:
+  web:
+    internal: true
+  database:
+    internal: true
+  execution:
+    internal: true
+  outbound: {}
+
+volumes:
+  postgres_data:
+  study_data:
+  caddy_data:
+  caddy_config:

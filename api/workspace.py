@@ -7,7 +7,12 @@ from api.errors import run
 from schemas.completion import CompletionRequest, CompletionResult
 from schemas.linting import LintRequest, LintResult
 from schemas.runner import RunResult
-from schemas.security_state import Category, HumanCategory, SecurityState
+from schemas.security_state import (
+    Category,
+    HumanAddCategory,
+    HumanCategory,
+    SecurityState,
+)
 from schemas.workspace import FileWrite, FolderCreate, Notes, NotesWrite, RenameRequest
 from services import completion, linting, runner, state_service, study, workspace
 
@@ -96,7 +101,7 @@ def get_item(db: Db, category: Category, item_id: str) -> dict:
 
 
 @router.post("/state/{category}", status_code=201)
-def add_item(db: Db, category: HumanCategory, body: Annotated[dict[str, Any], Body()]) -> dict:
+def add_item(db: Db, category: HumanAddCategory, body: Annotated[dict[str, Any], Body()]) -> dict:
     item = run(lambda: state_service.human_add(db, study.editable_workspace(db), category, body))
     return item.model_dump(mode="json")
 

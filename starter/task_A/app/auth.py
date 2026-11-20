@@ -1,29 +1,10 @@
-import sqlite3
-
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-
-from app.db import get_db
-
-router = APIRouter(prefix="/auth", tags=["auth"])
+def register_user(conn, username: str, password: str) -> None:
+    # Write your code here. For more clarification, check README.md or ask in chat.
+    # TODO: save the new user in the users table without storing a plain-text password.
+    raise NotImplementedError
 
 
-class Credentials(BaseModel):
-    username: str
-    password: str
-
-
-@router.post("/register", status_code=201)
-def register(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    # Write your code here. For more clarification, use the chat panel.
-    # TODO: save the new user in the users table and return {"id": ..., "username": ...}.
-    # If the username is already taken, raise HTTPException(status_code=409, detail="...").
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@router.post("/login")
-def login(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    # Write your code here. For more clarification, use the chat panel.
-    # TODO: return {"message": ...} if the username and password are correct.
-    # Otherwise raise HTTPException(status_code=401, detail="...").
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+def login(conn, username: str, password: str) -> tuple[bool, str]:
+    # Write your code here. For more clarification, check README.md or ask in chat.
+    # TODO: return (True, message) for valid credentials, otherwise (False, message).
+    raise NotImplementedError

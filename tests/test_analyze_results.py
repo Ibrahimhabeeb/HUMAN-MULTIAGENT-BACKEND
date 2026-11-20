@@ -34,17 +34,41 @@ def test_analysis_pairs_only_completed_non_pilot_parts_and_uses_final_tests(tmp_
               for code in ("P01", "X01")]
     all_survey = [{"participant_code": "P01", "condition": "team", "item": "state_status_tracking",
                    "value": "Agree", "score": "4"}]
-    findings = [{"participant_code": "P01", "mode": "team", "submitted": "True",
-                 "proposed_by_reviewer": "2", "accepted": "1", "rejected": "1",
-                 "fixed": "0", "fix_planned": "1", "no_fix": "0"}]
+    findings = [{"participant_code": "P01", "task_id": "B", "part": "2", "mode": "team", "submitted": "True",
+                 "proposed_by_reviewer": "2", "undecided": "0", "accepted": "1", "rejected": "1",
+                 "added_by_participant": "0", "fixed": "0", "fix_planned": "1", "no_fix": "0"}]
+    inventory = [{"participant_code": "P01", "task_id": "B", "part": "2", "mode": "team", "submitted": "True",
+                  "assumptions_total": "2", "risks_total": "2",
+                  "mitigations_total": "1", "mitigations_human": "1", "mitigations_planned": "1",
+                  "mitigations_implemented": "0", "accepted_with_mitigation": "1",
+                  "accepted_with_implemented_mitigation": "0"}]
+    decisions = [
+        {"participant_code": "P01", "task_id": "B", "part": "2", "mode": "team", "submitted": "True",
+         "approval_id": str(index), "actor": "reviewer", "action_type": action,
+         "decision_status": status, "fix_choice": "developer" if action == "propose_vulnerability" and status == "approved" else "",
+         "decision_seconds": seconds}
+        for index, (action, status, seconds) in enumerate([
+            ("propose_assumption", "approved", "12.5"),
+            ("propose_assumption", "rejected", "5.0"),
+            ("propose_risk", "suggested", ""),
+            ("propose_vulnerability", "approved", "20.0"),
+            ("propose_vulnerability", "rejected", "15.0"),
+            ("mark_resolved", "rejected", "8.0"),
+        ], start=1)
+    ]
     for name, rows in [
         ("v_part_summary.csv", parts), ("v_unit_test_results.csv", tests),
         ("v_survey_paired.csv", survey), ("v_survey.csv", all_survey),
         ("v_vulnerability_outcomes.csv", findings),
+        ("v_security_state_inventory.csv", inventory), ("v_security_state_decisions.csv", decisions),
     ]:
         write_rows(tmp_path, name, rows)
 
-    result = analyze_results.analyse(tmp_path, tmp_path / "analysis")
+    output = tmp_path / "analysis"
+    output.mkdir()
+    for old_name in ("README.md", "vulnerabilities_and_mitigations.md", "security_state.md"):
+        (output / old_name).write_text("old report", encoding="utf-8")
+    result = analyze_results.analyse(tmp_path, output)
 
     assert result["eligible_paired_participants"] == 1
     assert result["excluded_by_reason"] == {"pilot": 1, "incomplete": 1}
@@ -52,6 +76,12 @@ def test_analysis_pairs_only_completed_non_pilot_parts_and_uses_final_tests(tmp_
     assert result["passed_all_task_tests"] == {"team": 1, "single": 0}
     assert result["survey_by_item"]["security_confidence"]["mean_paired_difference"] == 2
     assert result["team_state"]["accepted"] == 1
+    assert result["state_inventory_totals"]["accepted_with_mitigation"] == 1
+    assert result["state_inventory_totals"]["mitigations_planned"] == 1
+    assert result["state_decisions_by_action"]["propose_assumption"]["statuses"] == {"approved": 1, "rejected": 1}
+    assert result["state_decisions_by_action"]["propose_assumption"]["median_decision_seconds"] == 8.75
+    assert result["state_decisions_by_action"]["propose_risk"]["statuses"] == {"suggested": 1}
+    assert result["fix_choice_counts"] == {"reviewer": 0, "developer": 1, "not_recorded": 0}
     assert result["team_only_survey"]["state_status_tracking"]["answers"] == {"Agree": 1}
     assert result["all_task_tests_passed_paired_test"] is None
     assert result["task_assignment_counts"] == {"team": {"B": 1}, "single": {"A": 1}}
@@ -63,7 +93,51 @@ def test_analysis_pairs_only_completed_non_pilot_parts_and_uses_final_tests(tmp_
     assert len(rows) == 1
     assert rows[0]["first_mode"] == "single"
     assert (rows[0]["team_task_id"], rows[0]["single_task_id"]) == ("B", "A")
-    assert "# Study analysis" in (tmp_path / "analysis" / "report.md").read_text(encoding="utf-8")
+    report = (output / "report.md").read_text(encoding="utf-8")
+    assert report.startswith("# Analysis results\n")
+    assert "Starting mode: team **0**, single **1**." in report
+    assert "| All tests passed (team) | All tests passed (single) |" in report
+    assert "## Activity (v_part_summary.csv; paired_activity.csv)" in report
+    assert "## Paired questionnaire answers (v_survey_paired.csv; paired_survey.csv)" in report
+    vulnerability_report = report.split("## Vulnerabilities and mitigations (Team Mode)\n", 1)[1].split("## Shared security state (Team Mode)\n", 1)[0]
+    assert "| Code Reviewer proposals | 2 |" in vulnerability_report
+    assert "| Accepted findings with a mitigation | 1 / 1 |" in vulnerability_report
+    assert "| Accepted findings marked fixed | 0 / 1 |" in vulnerability_report
+    assert "| Accepted findings with a planned mitigation | 1 / 1 |" in vulnerability_report
+    assert "| Accepted findings without a mitigation record | 0 / 1 |" in vulnerability_report
+    assert "| Mitigation records added by developer | 1 |" in vulnerability_report
+    assert "| Mitigation records marked implemented |" not in vulnerability_report
+    assert "| Mitigation records still planned |" not in vulnerability_report
+    assert "| Mitigation records |" not in vulnerability_report
+    assert "### Per-participant outcomes" not in vulnerability_report
+    assert "| Pending |" not in vulnerability_report
+    assert "| undecided |" not in vulnerability_report
+    assert "### State inventory (v_vulnerability_outcomes.csv; v_security_state_inventory.csv; security_state_parts.csv)" in report
+    assert "### Decisions by action (v_security_state_decisions.csv; security_state_decisions.csv)" in report
+    assert "| propose_risk | 0 | 0 | 0 | 1 |" in report
+    assert report.count("### ") == 4
+    assert "### Fix ownership choices" not in report
+    assert "### Per-participant state" not in report
+    assert "### Team-only questionnaire" not in report
+    assert "vulnerabilities_and_mitigations.md" not in report
+    assert "security_state.md" not in report
+    assert "](" not in report
+    for old_name in ("README.md", "vulnerabilities_and_mitigations.md", "security_state.md"):
+        assert not (output / old_name).exists()
+    with (tmp_path / "analysis" / "security_state_parts.csv").open(newline="", encoding="utf-8") as stream:
+        state_rows = list(csv.DictReader(stream))
+    assert state_rows[0]["accepted_without_mitigation"] == "0"
+
+
+def test_sample_participants_are_excluded_from_study_analysis():
+    rows = [
+        {"participant_code": "SYN001", "participant_status": "complete", "pilot": "False",
+         "mode": mode, "task_id": task, "part": str(part), "submitted": "True"}
+        for mode, task, part in [("team", "A", 1), ("single", "B", 2)]
+    ]
+    pairs, exclusions = analyze_results.eligible_pairs(rows)
+    assert pairs == {}
+    assert exclusions == {"sample_data": 1}
 
 
 def test_wilcoxon_uses_paired_scores_when_enough_answers_exist():

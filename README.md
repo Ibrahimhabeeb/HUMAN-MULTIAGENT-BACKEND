@@ -4,6 +4,14 @@ The FastAPI backend for the study that compares a team of AI agents with a singl
 Each browser tab has its own participant session: information sheet, consent, two parts (one in each mode)
 and a questionnaire. Different participants can work at the same time.
 
+## Hosting
+
+Follow [DEPLOYMENT.md](DEPLOYMENT.md) for the Linux VPS setup: a built frontend with automatic HTTPS,
+the FastAPI API, persistent PostgreSQL and code storage, and a private container-based Python test runner.
+Production requires explicit settings and never executes participant Python in the API process. Use one API
+worker while pre-consent sessions remain in memory. The new hosted database starts empty; generated sample
+results are not deployed. Existing local participant data is not copied or deleted by the deployment.
+
 ## Setup
 
 Needs Python 3.13 and [uv](https://docs.astral.sh/uv/).
@@ -25,6 +33,13 @@ Optional settings, in `.env` or as environment variables:
 |---|---|---|
 | `TEST_TIMEOUT_SECONDS` | `60` | How long one click on Run tests may take |
 | `DATABASE_URL` | `sqlite:///./data/app.db` | Where everything except code is stored. The study uses PostgreSQL: `postgresql+psycopg://USER:PASSWORD@localhost:5432/HUMANAGENTDB` |
+| `APP_ENV` | `development` | `production` requires PostgreSQL, model credentials, allowed hosts, persistent absolute paths and the isolated runner |
+| `FRONTEND_ORIGINS` | Local development URLs | JSON array of allowed browser origins; production uses the same-origin proxy |
+| `ALLOWED_HOSTS` | `["*"]` | JSON array of accepted hostnames; production requires explicit values |
+| `TEST_RUNNER_URL` / `TEST_RUNNER_TOKEN` | Unset | Private production test service and its credential; not exposed to participants |
+| `API_DOCS_ENABLED` | `true` | Disabled by the production Compose configuration |
+| `PENDING_SESSION_TTL_SECONDS` | `7200` | Expiry for unconsented in-memory setup sessions |
+| `MAX_PENDING_SESSIONS` | `1000` | Upper bound on pending browser setup sessions |
 
 ## Run
 
@@ -61,7 +76,9 @@ The views give the study's statistics directly (open them in pgAdmin under Schem
 |---|---|---|
 | `v_part_summary` | part | Time on task, reviews, test runs, typed messages, decisions, and the results below |
 | `v_vulnerability_outcomes` | team part | Findings proposed, accepted, rejected, fixed (mitigation implemented), still without a fix |
-| `v_unit_test_results` | part, both modes | The task's unit tests passed and failed in the latest run: after Finish, the final result |
+| `v_security_state_inventory` | team part | Assumption, risk and mitigation counts; accepted findings with linked and implemented mitigations |
+| `v_security_state_decisions` | team state-related action | Agent action, status and human decision time where applicable; no proposal text or code |
+| `v_unit_test_results` | part, both modes | Final unit-test counts, the latest recorded hidden security assessment, and combined totals and pass rates. Security runs are stored in `events` at Finish part. |
 | `v_survey` | answer | Each answer with its question, its number (`value_num`) and `score` (reversed if `reverse_scored`) |
 | `v_survey_paired` | participant and question | The per-mode questions, team and single side by side |
 
@@ -124,7 +141,7 @@ During a part:
 | Ready for review / Review updated code | `POST /chat/review` |
 | Finding follow-ups (team mode) | `POST /chat/follow-ups/{message_id}` |
 | Run tests | `POST /workspace/tests/run` |
-| Approvals | `GET /approvals`, `POST /approvals/{id}/decide` |
+| Approvals and fix ownership | `GET /approvals`, `POST /approvals/{id}/decide`, `POST /approvals/{id}/fix-choice` (team mode) |
 | Shared security state (team mode) | `GET /workspace/state`, `POST`/`PATCH`/`DELETE /workspace/state/{category}/...` |
 | Notes (single mode) | `GET`/`PUT /workspace/notes` |
 
@@ -136,11 +153,12 @@ impact and expected secure behaviour. Neither the handoff nor reading project fi
 Each reply is saved before the next agent starts; `POST /chat/next` can retry an interrupted route.
 In single mode, fix/test approvals are decision records only: they never create or update shared security state,
 and an approved fix never changes the code: the human types it.
-In team mode, accepting a vulnerability queues the Code Reviewer's fix follow-up, the only time an agent changes
-the code. `write_fix` replaces the exact code it names, with no second decision, and records an `implemented`
-mitigation. If that code changed in the meantime nothing is written and the follow-up can be retried. The editor
-is locked while it runs, so autosave can't overwrite the fix. Its progress is persisted in chat messages, so
-refresh resumes queued work without duplicating model calls.
+In team mode, accepting a vulnerability records the finding and asks in chat who should write its fix. If the
+developer chooses the Code Reviewer, `write_fix` replaces the exact code it names and records an `implemented`
+mitigation. If the developer chooses to write it, the reviewer gives a file path, code suggestion and explanation
+in chat without editing files. The choice and follow-up are saved, so a refresh does not repeat the question or
+duplicate the model call. The editor is locked only while the reviewer is writing code. If the code changes before
+the reviewer can apply a fix, nothing is written and the follow-up can be retried.
 
 ## Researcher scripts
 

@@ -9,12 +9,12 @@ ASSUMPTION = {"text": "Only the login form takes input from users"}
 RISK = {"description": "SQL injection in login", "severity": "High", "cwe": "CWE-89"}
 VULNERABILITY = {"description": "f-string SQL", "severity": "High", "file": "app/auth.py", "line": 5}
 TEST_FILE = {"path": "tests/test_security.py", "content": "def test_x():\n    assert True\n"}
-FIND = '    # TODO: return {"message": ...} if the username and password are correct.\n'
+FIND = '    # TODO: return (True, message) for valid credentials, otherwise (False, message).\n'
 FIX = {
     "vulnerability": "V1",
     "file": "app/auth.py",
     "find": FIND,
-    "replace": '    row = conn.execute("SELECT id FROM users WHERE username = ?", (body.username,)).fetchone()\n',
+    "replace": '    row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()\n',
     "why": "Placeholders stop user input changing the SQL.",
 }
 SUGGESTION = {
@@ -128,7 +128,11 @@ def test_the_code_reviewers_fix_goes_straight_into_the_code_and_the_state(client
 
     written = client.get(f"/approvals/{approval_id}").json()
     line = original[: original.index(FIND)].count("\n") + 1
-    assert (written["status"], written["result"]) == ("written", {"item_id": "M1", "line": line})
+    assert written["status"] == "written"
+    assert (written["result"]["item_id"], written["result"]["line"]) == ("M1", line)
+    assert written["result"]["after_hash"]
+    assert written["result"]["diff"]
+    assert (written["result"]["added_lines"], written["result"]["removed_lines"]) == (1, 1)
     assert client.get("/approvals?status=pending").json() == []  # accepting the vulnerability was the decision
     assert decide(client, approval_id, "approve").status_code == 409
     assert client.get("/workspace/files/app/auth.py").json()["content"] == original.replace(FIND, FIX["replace"])
@@ -141,6 +145,54 @@ def test_the_code_reviewers_fix_goes_straight_into_the_code_and_the_state(client
     assert (logged.actor, logged.detail["path"], logged.detail["mitigation"]) == ("reviewer", "app/auth.py", "M1")
 
 
+def test_undo_reviewer_fix_restores_code_state_and_finding_lines(client, db, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    decide(client, propose("reviewer", "propose_vulnerability", {**VULNERABILITY, "line": 90}), "approve")
+    waiting = propose("reviewer", "propose_vulnerability", {**VULNERABILITY, "line": 95})
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    fix_id = propose("reviewer", "write_fix", {**FIX, "replace": FIX["replace"] * 3})
+    assert [v["line"] for v in state(client)["vulnerabilities"]] == [5, 92]
+
+    response = client.post(f"/approvals/{fix_id}/undo")
+    assert response.status_code == 200
+    assert response.json()["status"] == "undone"
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+    assert state(client)["mitigations"] == []
+    assert [v["line"] for v in state(client)["vulnerabilities"]] == [5, 90]
+    assert client.get(f"/approvals/{waiting}").json()["proposal"]["line"] == 95
+    assert client.post(f"/approvals/{fix_id}/undo").status_code == 409
+    assert db.query(Event).filter(Event.type == "fix_undone").one().detail["approval_id"] == fix_id
+    assert db.query(Event).filter(Event.type == "state_item_deleted").one().detail["id"] == "M1"
+
+
+def test_undo_refuses_to_overwrite_later_file_edits(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    fix_id = propose("reviewer", "write_fix", FIX)
+    current = client.get("/workspace/files/app/auth.py").json()["content"]
+    edited = current + "\n# Developer's later change\n"
+    assert client.put("/workspace/files/app/auth.py", json={"content": edited}).status_code == 200
+
+    response = client.post(f"/approvals/{fix_id}/undo")
+    assert response.status_code == 409
+    assert "changed since this fix" in response.json()["detail"]
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == edited
+    assert client.get(f"/approvals/{fix_id}").json()["status"] == "written"
+    assert state(client)["mitigations"][0]["id"] == "M1"
+
+
+def test_undo_refuses_to_remove_a_changed_mitigation(client, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    fix_id = propose("reviewer", "write_fix", FIX)
+    current = client.get("/workspace/files/app/auth.py").json()["content"]
+    assert client.patch("/workspace/state/mitigations/M1", json={"description": "Developer's updated rationale"}).status_code == 200
+
+    response = client.post(f"/approvals/{fix_id}/undo")
+    assert response.status_code == 409
+    assert "mitigation has changed" in response.json()["detail"]
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == current
+    assert state(client)["mitigations"][0]["description"] == "Developer's updated rationale"
+
+
 def test_a_fix_is_not_written_if_the_code_changed_underneath_it(client, db, team, propose):
     decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
     changed = client.get("/workspace/files/app/auth.py").json()["content"].replace(FIND, "    # The human's own edit\n")
@@ -150,6 +202,30 @@ def test_a_fix_is_not_written_if_the_code_changed_underneath_it(client, db, team
     db.rollback()
     assert client.get("/workspace/files/app/auth.py").json()["content"] == changed
     assert state(client)["mitigations"] == []
+
+
+def test_reviewer_fix_with_undefined_name_does_not_change_code_or_state(client, db, team, propose):
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    bad_fix = {**FIX, "replace": "    row = missing_helper(username)\n"}
+    with pytest.raises(ConflictError, match="F821"):
+        propose("reviewer", "write_fix", bad_fix)
+    db.rollback()
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == original
+    assert state(client)["mitigations"] == []
+
+
+def test_reviewer_can_fix_code_with_an_unrelated_existing_name_error(client, team, propose):
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    broken = original + "\ndef unrelated():\n    return missing_existing_name\n"
+    assert client.put("/workspace/files/app/auth.py", json={"content": broken}).status_code == 200
+    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+
+    fix_id = propose("reviewer", "write_fix", FIX)
+
+    assert client.get(f"/approvals/{fix_id}").json()["status"] == "written"
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == broken.replace(FIND, FIX["replace"])
+    assert state(client)["mitigations"][0]["status"] == "implemented"
 
 
 def test_findings_below_a_fix_keep_pointing_at_the_right_lines(client, team, propose):
@@ -181,14 +257,18 @@ def test_a_fix_cannot_be_written_in_single_mode(single, propose):
 
 
 def test_a_vulnerability_is_kept_as_accepted_or_rejected(client, db, team, propose):
-    decide(client, propose("reviewer", "propose_vulnerability", VULNERABILITY), "approve")
+    accepted_id = propose("reviewer", "propose_vulnerability", VULNERABILITY)
+    decide(client, accepted_id, "approve")
     rejected = decide(client, propose("reviewer", "propose_vulnerability", {**VULNERABILITY, "line": 9}), "reject").json()
     assert [(v["id"], v["line"], v["status"]) for v in state(client)["vulnerabilities"]] == [
         ("V1", 5, "accepted"), ("V2", 9, "rejected"),
     ]
     assert (rejected["status"], rejected["result"]) == ("rejected", {"item_id": "V2"})
     jobs = [m for m in client.get("/chat").json()["team"] if m["data"].get("kind") == "vulnerability_follow_up"]
-    assert [job["data"]["vulnerability_id"] for job in jobs] == ["V1"]  # only an accepted one gets a fix
+    assert jobs == []  # acceptance does not authorize a code change
+    assert client.post(f"/approvals/{accepted_id}/fix-choice", json={"choice": "reviewer"}).status_code == 200
+    jobs = [m for m in client.get("/chat").json()["team"] if m["data"].get("kind") == "vulnerability_follow_up"]
+    assert [job["data"]["vulnerability_id"] for job in jobs] == ["V1"]
 
 
 def test_risks_have_no_status(client, team, propose):

@@ -18,8 +18,9 @@ from services.events import log_event
 from services.followups import KIND
 
 LEASE_SECONDS = 600
-# Only this follow-up can change the code. The frontend locks the editor while it runs, so no typing is overwritten.
+# Only a reviewer-owned fix can change the code. The frontend locks the editor while it runs.
 FIX_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state", "write_fix"]
+GUIDANCE_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state"]
 
 
 def _result(db: Session, message: Message) -> dict:
@@ -29,7 +30,7 @@ def _result(db: Session, message: Message) -> dict:
 
 
 def run(db: Session, ws: Workspace, message_id: int) -> dict:
-    """One durable follow-up per request: the Code Reviewer's fix for an accepted finding."""
+    """One durable follow-up: write the fix or explain it, as the developer chose."""
     job = db.get(Message, message_id)
     if ws.mode != "team" or job is None or job.workspace_id != ws.id or job.data.get("kind") != KIND:
         raise NotFoundError("Follow-up not found")
@@ -55,7 +56,7 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
         | ((Message.data["status"].as_string() == "running")
            & (Message.data["started_at"].as_float() <= now - LEASE_SECONDS)),
         ~busy,
-    ).values(data={**job.data, "status": "running", "started_at": now, "run_token": token}))
+    ).values(data={**job.data, "status": "running", "started_at": now, "run_token": token, "error": None}))
     db.commit()
     db.refresh(job)
     if claimed.rowcount != 1:
@@ -76,11 +77,26 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
             reply = f"{target} is no longer an accepted vulnerability; no fix is needed."
         elif any(m.vulnerability_id == target for m in ctx.state.mitigations):
             reply = f"{target} already has a mitigation; no fix is needed."
+        elif job.data.get("fix_choice") not in {"reviewer", "developer"}:
+            reply = f"Choose who should write the fix for {target} before the Code Reviewer continues."
+        elif job.data.get("fix_choice") == "developer":
+            text = (
+                f"The developer accepted vulnerability {target} and chose to write the fix themselves.\n\n"
+                f"{_vulnerability_list(ctx.state)}\n\n"
+                "Explain a concrete fix for this vulnerability in chat. Give the exact file path and location, "
+                "a short Python code block they can copy or adapt, and why it addresses the weakness. "
+                "Do not edit files, call write_fix, claim the fix is implemented, or propose another finding.\n\n"
+                f"Current project files:\n{code_listing(ctx.files)}"
+            )
+            with model_call(db, ws, actor):
+                reply = runtime.run_agent(team_prompt(actor), make_tools(ctx, actor, names=GUIDANCE_TOOLS), [HumanMessage(text)])
         else:
             text = (
                 f"The developer accepted vulnerability {target}.\n\n{_vulnerability_list(ctx.state)}\n\n"
                 f"Write the fix for {target} now with write_fix. It goes straight into the developer's code, so change "
-                "only what the fix needs. Then say in one or two sentences what you changed and why, without repeating "
+                "only what the fix needs. Preserve existing imports, classes and function interfaces; the tool rejects "
+                "new undefined names or syntax errors. Then say in one or two sentences what you changed "
+                "and why, without repeating "
                 "the code. Do not propose new vulnerabilities.\n\n"
                 f"Current project files:\n{code_listing(ctx.files)}"
                 f"\n\n{_not_approved(ctx, actor)}"
@@ -88,7 +104,8 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
             with model_call(db, ws, actor):
                 reply = runtime.run_agent(team_prompt(actor), make_tools(ctx, actor, names=FIX_TOOLS), [HumanMessage(text)])
             if not ctx.proposals:
-                raise ConflictError(f"The Code Reviewer didn't write a fix for {target}. Retry it, or fix it yourself.")
+                detail = f" Last tool rejection: {ctx.rejected_fixes[-1]}" if ctx.rejected_fixes else ""
+                raise ConflictError(f"The Code Reviewer didn't write a fix for {target}.{detail} Retry it, or fix it yourself.")
 
         # Reclaiming an expired run invalidates its token. Save proposals and reply in one transaction.
         owned = db.execute(update(Message).where(
@@ -112,12 +129,13 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
                 "seconds": round(time.monotonic() - started, 1), "proposals": len(saved), "vulnerability_id": target,
             })
         db.commit()
-    except Exception:
+    except Exception as error:
         db.rollback()
         db.refresh(job)
         db.execute(update(Message).where(
             Message.id == job.id, Message.data["run_token"].as_string() == token,
-        ).values(data={**job.data, "status": "failed"}))
+        ).values(data={**job.data, "status": "failed",
+                       "error": str(error) if isinstance(error, ConflictError) else None}))
         db.commit()
         raise
     db.refresh(job)

@@ -66,9 +66,9 @@ def test_different_tasks_have_independent_mode_attempts(client, db, enrol, task_
     assert [(part["mode"], part["task_id"]) for part in done["parts"]] == [(first_mode, task_id), (second_mode, second_task_id)]
     assert client.get("/workspace/files").status_code == 409
     snapshot_root = Path(get_settings().snapshots_dir)
-    # Finishing runs the unit tests first (snapshot 01_tests), then saves the final code.
-    assert (snapshot_root / f"P01_{task_id}_{first_mode}" / "02_done" / source).read_text(encoding="utf-8") == "# first attempt"
-    assert (snapshot_root / f"P01_{second_task_id}_{second_mode}" / "02_done" / second_source).read_text(encoding="utf-8") == "# second attempt"
+    # Both test groups assess the same final snapshot after Finish part.
+    assert (snapshot_root / f"P01_{task_id}_{first_mode}" / "01_done" / source).read_text(encoding="utf-8") == "# first attempt"
+    assert (snapshot_root / f"P01_{second_task_id}_{second_mode}" / "01_done" / second_source).read_text(encoding="utf-8") == "# second attempt"
 
 
 @pytest.mark.parametrize("task_id", ["A", "B", "C", "D", "E", "F", "G"])
@@ -107,7 +107,7 @@ def test_legacy_first_attempt_remains_readable_and_does_not_collide_with_the_new
     assert workspace.folder(second_ws).name == "P01_B_single"
     assert "def download" in workspace.read_file(second_ws, "app/storage.py")["content"]
     assert (legacy / "app/auth.py").read_text(encoding="utf-8") == "# legacy participant code"
-    assert (Path(get_settings().snapshots_dir) / "P01_A" / "02_done" / "app/auth.py").is_file()
+    assert (Path(get_settings().snapshots_dir) / "P01_A" / "01_done" / "app/auth.py").is_file()
     missing = workspace.folder(second_ws).with_name("missing-second-attempt")
     workspace.folder(second_ws).rename(missing)
     assert workspace.folder(second_ws).name == "P01_B_single"  # never read the first mode as a fallback

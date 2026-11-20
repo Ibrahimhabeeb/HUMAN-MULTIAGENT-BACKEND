@@ -21,6 +21,7 @@ from schemas.security_state import (
     Assumption,
     AssumptionCreate,
     Category,
+    HumanAddCategory,
     HumanCategory,
     Mitigation,
     MitigationCreate,
@@ -342,7 +343,7 @@ def _commit_human_change(db: Session, ws: Workspace, state: SecurityState, type:
     db.commit()
 
 
-def human_add(db: Session, ws: Workspace, category: HumanCategory, body: dict[str, Any]) -> StateItem:
+def human_add(db: Session, ws: Workspace, category: HumanAddCategory, body: dict[str, Any]) -> StateItem:
     lock(ws)
     state = load(ws)
     item = add_item(state, category, CREATE_SCHEMA[category].model_validate(body), "human")

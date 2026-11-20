@@ -10,7 +10,7 @@ from schemas.study import TaskId
 from services import runner
 
 TARGETS = {
-    "A": ("app/auth.py", {"register", "login"}),
+    "A": ("app/auth.py", {"register_user", "login"}),
     "B": ("app/storage.py", {"list_files", "download"}),
     "C": ("app/comments.py", {"render_comment"}),
     "D": ("app/preferences.py", {"export_preferences", "import_preferences"}),
@@ -21,43 +21,28 @@ TARGETS = {
 
 # Reference implementations and security checks stay outside participant-visible starter folders.
 _AUTH_HEADER = '''
-import hashlib
 import sqlite3
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-
-from app.db import get_db
-
-router = APIRouter(prefix="/auth")
-
-
-class Credentials(BaseModel):
-    username: str
-    password: str
 '''
 
 REFERENCES = {
     "A": _AUTH_HEADER + '''
-@router.post("/register", status_code=201)
-def register(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt(rounds=4)).decode()
+def register_user(conn, username, password):
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=4)).decode()
     try:
-        cursor = conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (body.username, hashed))
+        conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed))
         conn.commit()
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as exc:
         conn.rollback()
-        raise HTTPException(status_code=409, detail="Username already taken")
-    return {"id": cursor.lastrowid, "username": body.username}
+        raise ValueError("Username already taken") from exc
 
 
-@router.post("/login")
-def login(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (body.username,)).fetchone()
-    if row is None or not bcrypt.checkpw(body.password.encode(), row["password_hash"].encode()):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    return {"message": "Logged in"}
+def login(conn, username, password):
+    row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone()
+    if row is None or not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
+        return False, "Invalid username or password"
+    return True, "Logged in"
 ''',
     "C": '''
 import html
@@ -124,27 +109,26 @@ def record_recovery_attempt(logger, account_id, recovery_token, succeeded):
 SECURITY_CHECKS = {
     "A": '''
 import pytest
-from fastapi.testclient import TestClient
-from app.main import create_app
-
-@pytest.fixture
-def client():
-    with TestClient(create_app()) as http:
-        http.post("/auth/register", json={"username": "alice", "password": "wonderland"})
-        yield http
+from app.auth import login, register_user
+from app.db import get_connection
 
 @pytest.mark.parametrize("username", ["alice' --", "' OR '1'='1' --", "nobody' OR 1=1 --"])
-def test_sql_in_the_username_does_not_log_in(client, username):
-    response = client.post("/auth/login", json={"username": username, "password": "wrong"})
-    assert response.status_code == 401
+def test_sql_in_the_username_does_not_identify_another_user(username):
+    conn = get_connection()
+    register_user(conn, "alice", "wonderland")
+    ok, _ = login(conn, username, "wonderland")
+    assert ok is False
 
-def test_quotes_in_a_username_are_ordinary_text(client):
-    credentials = {"username": "o'brien", "password": "pa'ss"}
-    assert client.post("/auth/register", json=credentials).status_code == 201
-    assert client.post("/auth/login", json=credentials).status_code == 200
+def test_quotes_in_a_username_are_ordinary_text():
+    conn = get_connection()
+    register_user(conn, "o'brien", "pa'ss")
+    ok, _ = login(conn, "o'brien", "pa'ss")
+    assert ok is True
 
-def test_passwords_are_not_stored_in_plain_text(client):
-    stored = client.app.state.db.execute("SELECT password_hash FROM users").fetchone()["password_hash"]
+def test_passwords_are_not_stored_in_plain_text():
+    conn = get_connection()
+    register_user(conn, "alice", "wonderland")
+    stored = conn.execute("SELECT password_hash FROM users").fetchone()["password_hash"]
     assert "wonderland" not in stored
 ''',
     "C": '''
@@ -252,27 +236,17 @@ def test_secret_never_enters_log_records(caplog):
 UNSAFE_REFERENCES = {
     # Hashes passwords but builds SQL from user input, so only the injection is unsafe.
     "A": _AUTH_HEADER + '''
-def _hash(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-@router.post("/register", status_code=201)
-def register(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    cursor = conn.execute(
-        f"INSERT INTO users (username, password_hash) VALUES ('{body.username}', '{_hash(body.password)}')"
-    )
+def register_user(conn, username, password):
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=4)).decode()
+    conn.execute(f"INSERT INTO users (username, password_hash) VALUES ('{username}', '{hashed}')")
     conn.commit()
-    return {"id": cursor.lastrowid, "username": body.username}
 
 
-@router.post("/login")
-def login(body: Credentials, conn: sqlite3.Connection = Depends(get_db)):
-    row = conn.execute(
-        f"SELECT id FROM users WHERE username = '{body.username}' AND password_hash = '{_hash(body.password)}'"
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    return {"message": "Logged in"}
+def login(conn, username, password):
+    row = conn.execute(f"SELECT password_hash FROM users WHERE username = '{username}'").fetchone()
+    if row is None or not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
+        return False, "Invalid username or password"
+    return True, "Logged in"
 ''',
     "C": '''
 def render_comment(author, text):

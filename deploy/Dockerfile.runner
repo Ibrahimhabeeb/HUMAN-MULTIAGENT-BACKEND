@@ -1,0 +1,11 @@
+FROM docker:29-cli AS dockercli
+FROM python:3.13-slim
+
+COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
+WORKDIR /app
+COPY deploy/runner_broker.py deploy/test_entrypoint.py /app/deploy/
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TMPDIR=/tmp
+# Compose must give this user the Docker socket's supplementary group and a bounded /tmp tmpfs.
+USER 65534:65534
+EXPOSE 9000
+CMD ["python", "-B", "-m", "deploy.runner_broker"]

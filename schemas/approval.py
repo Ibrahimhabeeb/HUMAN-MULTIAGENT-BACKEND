@@ -16,8 +16,9 @@ ActionType = Literal[
     "suggest_fix",
     "write_fix",
 ]
-ApprovalStatus = Literal["pending", "approved", "rejected", "suggested", "written"]
+ApprovalStatus = Literal["pending", "approved", "rejected", "suggested", "written", "undone"]
 Decision = Literal["approve", "reject"]  # proposals are never edited: the human changes approved items themselves
+FixChoice = Literal["reviewer", "developer"]
 
 
 class ResolveProposal(BaseModel):
@@ -100,3 +101,7 @@ class ApprovalOut(BaseModel):
 
 class DecisionRequest(BaseModel):
     decision: Decision
+
+
+class FixChoiceRequest(BaseModel):
+    choice: FixChoice

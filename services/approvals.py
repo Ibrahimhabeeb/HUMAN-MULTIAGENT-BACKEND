@@ -1,3 +1,5 @@
+from difflib import SequenceMatcher
+from hashlib import sha256
 from typing import Any
 
 from sqlalchemy import select, update
@@ -11,12 +13,14 @@ from schemas.approval import (
     SINGLE_MODE_ACTIONS,
     ActionType,
     Decision,
+    FixChoice,
     ProposedTest,
 )
 from schemas.security_state import MitigationCreate, SecurityState
 from services import followups, state_service, workspace
 from services.errors import ConflictError, NotFoundError
 from services.events import log_event
+from services.fix_validation import invalid_python_edit
 
 # Which state category each "propose_*" action adds to.
 _ADDS_TO = {
@@ -96,6 +100,26 @@ def _move_findings(db: Session, ws: Workspace, state: SecurityState, file: str, 
             waiting.proposal = {**proposal, "line": proposal["line"] + by}
 
 
+def _edit_diff(before: str, after: str) -> tuple[list[dict[str, str]], int, int]:
+    old, new = before.splitlines(), after.splitlines()
+    rows: list[dict[str, str]] = []
+    added = removed = 0
+    # Large model-supplied snippets still get a useful preview without quadratic matching work.
+    if len(old) * len(new) > 100_000:
+        spans = [("replace", 0, len(old), 0, len(new))]
+    else:
+        spans = SequenceMatcher(None, old, new).get_opcodes()
+    for kind, old_start, old_end, new_start, new_end in spans:
+        if kind == "equal":
+            rows.extend({"kind": "context", "text": line} for line in old[old_start:old_end])
+        else:
+            rows.extend({"kind": "remove", "text": line} for line in old[old_start:old_end])
+            rows.extend({"kind": "add", "text": line} for line in new[new_start:new_end])
+            removed += old_end - old_start
+            added += new_end - new_start
+    return rows, added, removed
+
+
 def _write_fix(db: Session, ws: Workspace, approval: Approval, fix: dict[str, Any]) -> dict:
     # The only change an agent makes to the code: it goes into the file and into the state as a mitigation.
     state_service.lock(ws)
@@ -103,7 +127,11 @@ def _write_fix(db: Session, ws: Workspace, approval: Approval, fix: dict[str, An
     content = workspace.read_file(ws, path)["content"]
     if content.count(find) != 1:
         raise ConflictError(f"{path} changed while the fix was being written, so it wasn't applied. Retry it.")
-    line = content[: content.index(find)].count("\n") + 1
+    offset = content.index(find)
+    line = content[:offset].count("\n") + 1
+    updated = content[:offset] + replace + content[offset + len(find):]
+    if problem := invalid_python_edit(path, content, updated):
+        raise ConflictError(f"The Code Reviewer fix was not applied: {problem}")
 
     state = state_service.load(ws)
     mitigation = MitigationCreate(
@@ -115,10 +143,52 @@ def _write_fix(db: Session, ws: Workspace, approval: Approval, fix: dict[str, An
     _move_findings(db, ws, state, path, line + find.count("\n"), moved)
     state_service.save(ws, state)
 
-    workspace.write_text(ws, path, content.replace(find, replace))
+    workspace.write_text(ws, path, updated)
     detail = {"path": path, "line": line, "chars": len(replace), "mitigation": item.id, "approval_id": approval.id}
     log_event(db, ws.participant_code, "fix_written", actor=approval.actor, mode=ws.mode, detail=detail)
-    return {"item_id": item.id, "line": line}
+    diff, added, removed = _edit_diff(find, replace)
+    return {
+        "item_id": item.id, "line": line, "offset": offset,
+        "after_hash": sha256(updated.encode("utf-8")).hexdigest(),
+        "diff": diff, "added_lines": added, "removed_lines": removed,
+    }
+
+
+def undo_fix(db: Session, ws: Workspace, approval_id: int) -> Approval:
+    """Undo a reviewer edit only while its exact file and mitigation remain untouched."""
+    if ws.mode != "team":
+        raise ConflictError("Only a Code Reviewer fix in team mode can be undone")
+    state_service.lock(ws)
+    approval = get_approval(db, ws, approval_id)
+    db.refresh(approval)
+    if approval.action_type != "write_fix" or approval.status != "written":
+        raise ConflictError("This fix is not available to undo")
+    result = approval.result or {}
+    offset, after_hash = result.get("offset"), result.get("after_hash")
+    if not isinstance(offset, int) or not isinstance(after_hash, str):
+        raise ConflictError("This older fix has no safe undo record")
+    path, find, replace = (approval.proposal[key] for key in ("file", "find", "replace"))
+    content = workspace.read_file(ws, path)["content"]
+    if sha256(content.encode("utf-8")).hexdigest() != after_hash or content[offset:offset + len(replace)] != replace:
+        raise ConflictError(f"{path} has changed since this fix. Review the current code before undoing it.")
+    state = state_service.load(ws)
+    mitigation = next((item for item in state.mitigations if item.id == result.get("item_id")), None)
+    if (mitigation is None or mitigation.approval_id != approval.id or mitigation.status != "implemented"
+            or mitigation.file != path or mitigation.code != replace or mitigation.description != approval.proposal["why"]):
+        raise ConflictError("The mitigation has changed since this fix. Review the security state before undoing it.")
+    original = content[:offset] + find + content[offset + len(replace):]
+    line = result["line"]
+    _move_findings(db, ws, state, path, line + replace.count("\n"), find.count("\n") - replace.count("\n"))
+    state_service.delete_item(state, "mitigations", mitigation.id)
+    state_service.save(ws, state)
+    workspace.write_text(ws, path, original)
+    approval.status = "undone"
+    log_event(db, ws.participant_code, "state_item_deleted", mode=ws.mode,
+              detail={"category": "mitigations", "id": mitigation.id, "approval_id": approval.id})
+    log_event(db, ws.participant_code, "fix_undone", mode=ws.mode,
+              detail={"path": path, "mitigation": mitigation.id, "approval_id": approval.id})
+    db.commit()
+    return approval
 
 
 def _apply(db: Session, ws: Workspace, approval: Approval, final: dict[str, Any]) -> dict | None:
@@ -193,8 +263,6 @@ def decide(db: Session, ws: Workspace, approval_id: int, decision: Decision) -> 
         approval.status = _STATUS_FOR[decision]
         approval.final_proposal = final
         approval.decided_at = utc_now()
-        if decision == "approve" and approval.action_type == "propose_vulnerability":
-            followups.queue_missing(db, ws)  # an accepted finding starts the Code Reviewer's fix
         log_event(
             db,
             ws.participant_code,
@@ -211,4 +279,30 @@ def decide(db: Session, ws: Workspace, approval_id: int, decision: Decision) -> 
     except Exception:
         db.rollback()  # nothing applied, and the approval goes back to pending
         raise
+    return approval
+
+
+def choose_fix(db: Session, ws: Workspace, approval_id: int, choice: FixChoice) -> Approval:
+    """Record the human's separate decision before the reviewer writes or suggests a fix."""
+    if ws.mode != "team":
+        raise ConflictError("Fix ownership is only chosen for team vulnerabilities")
+    state_service.lock(ws)  # serialize choices from multiple tabs with state changes
+    approval = get_approval(db, ws, approval_id)
+    db.refresh(approval)
+    if approval.action_type != "propose_vulnerability" or approval.status != "approved":
+        raise ConflictError("Accept a Code Reviewer vulnerability before choosing who fixes it")
+    if (approval.result or {}).get("fix_choice"):
+        raise ConflictError("Who writes this fix has already been chosen")
+    state = state_service.load(ws)
+    vulnerability_id = (approval.result or {}).get("item_id")
+    vulnerability = next((v for v in state.vulnerabilities if v.id == vulnerability_id), None)
+    if vulnerability is None or vulnerability.status != "accepted":
+        raise ConflictError("This vulnerability is no longer accepted")
+    if any(m.vulnerability_id == vulnerability_id for m in state.mitigations):
+        raise ConflictError("This vulnerability already has a mitigation")
+    approval.result = {**(approval.result or {}), "fix_choice": choice}
+    followups.queue_missing(db, ws)
+    log_event(db, ws.participant_code, "fix_choice_made", mode=ws.mode,
+              detail={"approval_id": approval.id, "vulnerability_id": vulnerability_id, "choice": choice})
+    db.commit()
     return approval

@@ -1,32 +1,27 @@
+import sqlite3
+
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import create_app
-
-
-@pytest.fixture
-def client():
-    # A new app with an empty database for every test.
-    with TestClient(create_app()) as http:
-        yield http
+from app.auth import login, register_user
+from app.db import get_connection
 
 
-def test_registered_user_can_log_in(client):
-    response = client.post("/auth/register", json={"username": "alice", "password": "wonderland"})
-    assert response.status_code == 201
-    assert response.json()["username"] == "alice"
-
-    response = client.post("/auth/login", json={"username": "alice", "password": "wonderland"})
-    assert response.status_code == 200
-
-
-def test_wrong_password_is_refused(client):
-    client.post("/auth/register", json={"username": "alice", "password": "wonderland"})
-    response = client.post("/auth/login", json={"username": "alice", "password": "not-the-password"})
-    assert response.status_code == 401
+def test_registered_user_can_log_in():
+    conn = get_connection()
+    register_user(conn, "alice", "wonderland")
+    ok, message = login(conn, "alice", "wonderland")
+    assert ok is True
+    assert isinstance(message, str) and message
 
 
-def test_username_must_be_unique(client):
-    client.post("/auth/register", json={"username": "alice", "password": "wonderland"})
-    response = client.post("/auth/register", json={"username": "alice", "password": "another-password"})
-    assert response.status_code == 409
+def test_wrong_password_is_refused():
+    conn = get_connection()
+    register_user(conn, "alice", "wonderland")
+    ok, _ = login(conn, "alice", "not-the-password")
+    assert ok is False
+
+
+def test_username_must_be_unique():
+    conn = get_connection()
+    register_user(conn, "alice", "wonderland")
+    with pytest.raises((sqlite3.IntegrityError, ValueError)):
+        register_user(conn, "alice", "another-password")

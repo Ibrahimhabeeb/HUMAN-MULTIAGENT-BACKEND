@@ -43,7 +43,7 @@ def _state(db: Session) -> StudyState:
 @router.post("/session")
 def create_session(body: ModeRequest, response: Response) -> SessionToken:
     response.headers["Cache-Control"] = "no-store"
-    return SessionToken(token=sessions.create(body.mode))
+    return SessionToken(token=run(lambda: sessions.create(body.mode)))
 
 
 def _new_session(db: Session, response: Response, mode: Mode) -> StudyState:

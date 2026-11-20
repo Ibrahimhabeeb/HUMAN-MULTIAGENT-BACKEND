@@ -1,0 +1,12 @@
+{
+  "version": "1",
+  "tasks": {
+    "A": {"file": "task_a.py", "cwe": "CWE-89", "expected": 12},
+    "B": {"file": "task_b.py", "cwe": "CWE-22", "expected": 8},
+    "C": {"file": "task_c.py", "cwe": "CWE-79", "expected": 12},
+    "D": {"file": "task_d.py", "cwe": "CWE-502", "expected": 18},
+    "E": {"file": "task_e.py", "cwe": "CWE-352", "expected": 11},
+    "F": {"file": "task_f.py", "cwe": "CWE-639", "expected": 10},
+    "G": {"file": "task_g.py", "cwe": "CWE-532", "expected": 6}
+  }
+}

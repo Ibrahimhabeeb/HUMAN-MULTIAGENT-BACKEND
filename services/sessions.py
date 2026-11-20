@@ -2,11 +2,13 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from threading import Lock
+from time import monotonic
 from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from config import get_settings
 from models import Participant, StudySession
 from schemas.study import Mode, TaskId
 from services.errors import ConflictError
@@ -26,9 +28,11 @@ class Pending:
 class TabSession:
     switch: Mode = "team"
     pending: Pending | None = None
+    expires_at: float = 0
 
 
 _pending: dict[str, TabSession] = {}
+_pending_lock = Lock()
 # Participant codes are allocated sequentially; consent is the only serialized operation.
 consent_lock = Lock()
 
@@ -39,7 +43,14 @@ def reset_memory() -> None:
 
 def create(mode: Mode = "team") -> str:
     token = secrets.token_urlsafe(32)
-    _pending[_hash(token)] = TabSession(switch=mode)
+    settings = get_settings()
+    now = monotonic()
+    with _pending_lock:
+        for expired in [key for key, value in _pending.items() if value.expires_at <= now]:
+            del _pending[expired]
+        if len(_pending) >= settings.max_pending_sessions:
+            raise ConflictError("The study is busy. Please try starting again shortly.")
+        _pending[_hash(token)] = TabSession(switch=mode, expires_at=now + settings.pending_session_ttl_seconds)
     return token
 
 
@@ -59,8 +70,12 @@ def bind(db: Session, token: str | None) -> bool:
         ))
         if participant is None:
             return False
-    elif token_hash not in _pending:
-        return False
+    else:
+        with _pending_lock:
+            pending = _pending.get(token_hash)
+            if pending is None or pending.expires_at <= monotonic():
+                _pending.pop(token_hash, None)
+                return False
     db.info[_CONTEXT] = token_hash
     return True
 
