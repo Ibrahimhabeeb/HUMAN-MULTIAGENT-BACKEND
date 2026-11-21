@@ -6,6 +6,8 @@
 .env.*
 !.env.example
 !.env.production.example
+.release.env
+.deployment.lock
 
 # Python bytecode and build output
 __pycache__/

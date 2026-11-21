@@ -1,0 +1,84 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  select:
+    name: Select checked versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      backend_sha: ${{ steps.versions.outputs.backend_sha }}
+      frontend_sha: ${{ steps.versions.outputs.frontend_sha }}
+      frontend_repository: ${{ steps.versions.outputs.frontend_repository }}
+    steps:
+      - name: Check out deployment code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: backend
+      - name: Require successful CI for both main commits
+        id: versions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 backend/deploy/verify_release.py
+
+  deploy:
+    name: Build and deploy production
+    needs: select
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    steps:
+      - name: Check deployment access is configured
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing production environment secret: $name" >&2
+              exit 1
+            fi
+          done
+      - name: Check out the selected backend
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.backend_sha }}
+          persist-credentials: false
+          path: backend
+      - name: Check out the selected frontend
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.select.outputs.frontend_repository }}
+          ref: ${{ needs.select.outputs.frontend_sha }}
+          persist-credentials: false
+          path: frontend
+      - name: Build and package all four images
+        env:
+          BACKEND_SHA: ${{ needs.select.outputs.backend_sha }}
+          FRONTEND_SHA: ${{ needs.select.outputs.frontend_sha }}
+        run: bash backend/deploy/package-release.sh "$BACKEND_SHA" "$FRONTEND_SHA" "$GITHUB_WORKSPACE/frontend" "$RUNNER_TEMP/release"
+      - name: Deploy over verified SSH
+        env:
+          BACKEND_SHA: ${{ needs.select.outputs.backend_sha }}
+          FRONTEND_SHA: ${{ needs.select.outputs.frontend_sha }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: bash backend/deploy/ssh-release.sh "$RUNNER_TEMP/release"
