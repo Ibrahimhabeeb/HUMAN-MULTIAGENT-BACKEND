@@ -16,9 +16,9 @@ def bundle(tmp_path):
     folder = tmp_path / "bundle"
     folder.mkdir()
     (folder / "images.tar.gz").write_bytes(b"example image archive")
-    manifest = {"version": 1, "backend_sha": BACKEND, "frontend_sha": FRONTEND,
+    manifest = {"version": 2, "backend_sha": BACKEND, "frontend_sha": FRONTEND,
                 "archive_sha256": release.digest(folder / "images.tar.gz"),
-                "images": {name: {"tag": tag, "id": "sha256:" + "c" * 64}
+                "images": {name: {"tag": tag, "id": "sha256:" + "c" * 64, "config_digest": "sha256:" + "d" * 64}
                            for name, tag in release.tags(BACKEND, FRONTEND).items()}}
     (folder / "manifest.json").write_text(json.dumps(manifest))
     return folder, manifest
@@ -33,7 +33,7 @@ def test_release_requires_all_four_images_at_the_selected_commits(bundle):
         release.read_manifest(folder, BACKEND, FRONTEND)
 
 
-@pytest.mark.parametrize("change", ["archive", "tag", "commit", "image-id"])
+@pytest.mark.parametrize("change", ["archive", "tag", "commit", "image-id", "config-digest", "old-version"])
 def test_release_rejects_corruption_and_mixed_versions(bundle, change):
     folder, manifest = bundle
     if change == "archive":
@@ -42,8 +42,12 @@ def test_release_rejects_corruption_and_mixed_versions(bundle, change):
         manifest["images"]["api"]["tag"] = "unreviewed:latest"
     elif change == "commit":
         manifest["frontend_sha"] = "d" * 40
-    else:
+    elif change == "image-id":
         manifest["images"]["runner"]["id"] = "not-an-image-id"
+    elif change == "config-digest":
+        manifest["images"]["runner"]["config_digest"] = "not-a-config-digest"
+    else:
+        manifest["version"] = 1
     (folder / "manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(release.DeploymentError):
         release.read_manifest(folder, BACKEND, FRONTEND)
@@ -76,7 +80,7 @@ def deployment(tmp_path, monkeypatch, bundle):
 
 def test_loading_rejects_an_image_with_the_wrong_platform(deployment, monkeypatch):
     job, manifest = deployment
-    monkeypatch.setattr(job, "command", lambda *args, **kwargs: "sha256:" + "c" * 64 + " linux arm64")
+    monkeypatch.setattr(job, "command", lambda *args, **kwargs: "linux arm64")
     with pytest.raises(release.DeploymentError, match="platform"):
         job.inspect_images(manifest)
 

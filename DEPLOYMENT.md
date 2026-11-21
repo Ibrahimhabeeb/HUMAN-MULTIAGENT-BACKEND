@@ -190,8 +190,16 @@ are prerequisites. This version targets the existing x86-64 Ubuntu VPS and uses 
 
 The workflow selects the backend commit and the frontend's `main` commit once. It requires successful
 push-to-main CI runs for those exact commits, builds all four images on GitHub, and transfers their compressed
-Docker archive and a checksum/image-ID manifest over SSH. There is no registry account or token to configure.
+Docker archive and a checksum/config-digest manifest over SSH. There is no registry account or token to configure.
 The 2 GB VPS loads the images; it does not compile the frontend during CD.
+
+Image verification compares the SHA-256 of the saved image configuration, which includes the layer identities,
+and requires `linux/amd64`. Docker's classic image store and containerd store can report different `.Id` values
+for the same image, so those store-specific IDs are retained for diagnostics rather than compared across hosts.
+The server streams a fresh export of the loaded tags to verify their configurations before maintenance starts;
+it does not keep another archive in memory or on disk. The uploaded archive checksum is also checked.
+After changing the release helper, start a new workflow on the merged `main` commit. Re-running an older
+workflow uses its older helper and manifest format.
 
 The selector authenticates GitHub API lookups with the automatic `GITHUB_TOKEN`, including public frontend
 lookups, to avoid the smaller anonymous rate limit shared by a runner's network address. Temporary network
