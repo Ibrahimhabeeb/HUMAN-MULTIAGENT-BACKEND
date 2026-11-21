@@ -44,6 +44,9 @@ class ReleaseSelectionTests(unittest.TestCase):
         self.backend = {"workflow_runs": [run(BACKEND_SHA)]}
         self.frontend = {"workflow_runs": [run(FRONTEND_SHA)]}
         self.opener = Mock(side_effect=self.respond)
+        sleep = patch.object(release.time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
         guard = patch.object(release, "urlopen", side_effect=AssertionError("Live network is forbidden"))
         guard.start()
         self.addCleanup(guard.stop)
@@ -71,17 +74,54 @@ class ReleaseSelectionTests(unittest.TestCase):
                          f"existing=value\nbackend_sha={BACKEND_SHA}\nfrontend_sha={FRONTEND_SHA}\n"
                          f"frontend_repository={FRONTEND}\n")
 
-    def test_frontend_is_resolved_once_and_only_backend_gets_token(self):
+    def test_frontend_is_resolved_once_and_all_requests_use_the_automatic_token(self):
         release.verify_release(self.env, self.opener)
         requests = [call.args[0] for call in self.opener.call_args_list]
         self.assertEqual(len(requests), 3)
         self.assertEqual(requests[0].full_url, f"https://api.github.com/repos/{FRONTEND}/commits/main")
-        self.assertIsNone(requests[0].get_header("Authorization"))
-        self.assertEqual(requests[1].get_header("Authorization"), "Bearer FAKE-TEST-TOKEN")
-        self.assertIsNone(requests[2].get_header("Authorization"))
+        self.assertTrue(all(request.get_header("Authorization") == "Bearer FAKE-TEST-TOKEN" for request in requests))
         for request, sha in zip(requests[1:], (BACKEND_SHA, FRONTEND_SHA)):
             self.assertEqual(parse_qs(urlsplit(request.full_url).query),
                              {"head_sha": [sha], "event": ["push"], "branch": ["main"], "per_page": ["100"]})
+
+    def test_optional_frontend_read_token_is_only_sent_to_the_frontend_repository(self):
+        self.env["FRONTEND_READ_TOKEN"] = "FRONTEND-ONLY-TEST-TOKEN"
+        release.verify_release(self.env, self.opener)
+        requests = [call.args[0] for call in self.opener.call_args_list]
+        self.assertEqual([request.get_header("Authorization") for request in requests],
+                         ["Bearer FRONTEND-ONLY-TEST-TOKEN", "Bearer FAKE-TEST-TOKEN", "Bearer FRONTEND-ONLY-TEST-TOKEN"])
+
+    def test_temporary_api_failure_is_retried_with_authentication_preserved(self):
+        error = HTTPError("https://api.github.com/", 503, "unavailable", {}, io.BytesIO(b"private response"))
+        self.opener.side_effect = [error, io.BytesIO(json.dumps(self.commit).encode()),
+                                   io.BytesIO(json.dumps(self.backend).encode()), io.BytesIO(json.dumps(self.frontend).encode())]
+        self.assertEqual(release.main(self.env, self.opener), 0)
+        self.assertEqual(self.opener.call_count, 4)
+        self.sleep.assert_called_once_with(1)
+        self.assertTrue(error.closed)
+        for call in self.opener.call_args_list:
+            self.assertEqual(call.args[0].get_header("Authorization"), "Bearer FAKE-TEST-TOKEN")
+
+    def test_rate_limit_reports_http_status_and_endpoint_without_retrying_or_leaking_body(self):
+        secret = "FAKE-TEST-TOKEN response-body-must-remain-private"
+        self.opener.side_effect = HTTPError("https://api.github.com/", 403, secret,
+                                           {"X-RateLimit-Remaining": "0"}, io.BytesIO(secret.encode()))
+        self.assert_blocked(r"HUMAN-MULTIAGENT-FRONTEND/commits/main: HTTP 403; rate limit")
+        self.opener.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_network_retries_are_bounded_and_do_not_authorize_deployment(self):
+        self.opener.side_effect = URLError("private diagnostic detail")
+        self.assert_blocked("network/TLS failure")
+        self.assertEqual(self.opener.call_count, 3)
+        self.assertEqual([call.args[0] for call in self.sleep.call_args_list], [1, 2])
+
+    def test_long_server_retry_delay_fails_without_retrying_early(self):
+        self.opener.side_effect = HTTPError("https://api.github.com/", 503, "unavailable",
+                                           {"Retry-After": "60"}, io.BytesIO(b"private"))
+        self.assert_blocked("HTTP 503; rate limit or server retry delay")
+        self.opener.assert_called_once()
+        self.sleep.assert_not_called()
 
     def test_backend_token_is_optional(self):
         del self.env["GITHUB_TOKEN"]

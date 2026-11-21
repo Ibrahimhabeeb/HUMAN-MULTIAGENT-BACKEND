@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+import time
 from http.client import HTTPException
 from pathlib import Path
 from urllib.error import HTTPError
@@ -29,14 +30,38 @@ def api(path, token, opener):
                "X-GitHub-Api-Version": "2022-11-28"}
     if token:
         headers["Authorization"] = "Bearer " + token
-    try:
-        request = Request("https://api.github.com/repos/" + path, headers=headers)
-        with (opener or urlopen)(request, timeout=20) as response:
-            data = json.load(response)
-    except (OSError, ValueError, HTTPException) as error:
-        if isinstance(error, HTTPError):
+    resource = path.split("?", 1)[0]
+    for attempt in range(3):
+        try:
+            request = Request("https://api.github.com/repos/" + path, headers=headers)
+            with (opener or urlopen)(request, timeout=20) as response:
+                data = json.load(response)
+            break
+        except HTTPError as error:
+            status = error.code
+            response_headers = error.headers or {}
+            limited = status == 429 or (status == 403 and response_headers.get("X-RateLimit-Remaining") == "0")
+            retry_header = response_headers.get("Retry-After", "")
+            retry_after = int(retry_header) if retry_header.isascii() and retry_header.isdigit() else 0
             error.close()
-        raise SelectionError("GitHub API request failed; check availability, rate limits and access.") from None
+            if not limited and status in (500, 502, 503, 504) and attempt < 2 and retry_after <= 10:
+                time.sleep(max(2 ** attempt, retry_after))
+                continue
+            reason = "GitHub returned an error"
+            if limited or retry_after:
+                reason = "rate limit or server retry delay; wait before rerunning"
+            elif status in (401, 403):
+                reason = "access denied; check the token's repository read permissions"
+            elif status == 404:
+                reason = "repository/workflow unavailable or not visible to this token"
+            raise SelectionError(f"GitHub API request failed for {resource}: HTTP {status}; {reason}.") from None
+        except (OSError, HTTPException) as error:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            raise SelectionError(f"GitHub API request failed for {resource}: network/TLS failure ({type(error).__name__}).") from None
+        except ValueError:
+            raise SelectionError(f"GitHub API request failed for {resource}: invalid JSON response.") from None
     if not isinstance(data, dict):
         raise SelectionError("GitHub API returned an invalid response object.")
     return data
@@ -72,10 +97,14 @@ def verify_release(env, opener=None):
     if not output or any(ord(c) < 32 or ord(c) == 127 for c in output):
         raise SelectionError("GITHUB_OUTPUT must name an output file without control characters.")
     frontend_repository = match[1] + "/HUMAN-MULTIAGENT-FRONTEND"
-    frontend = api(f"{frontend_repository}/commits/main", "", opener)
+    backend_token = env.get("GITHUB_TOKEN", "")
+    # Public lookups still benefit from authentication on shared GitHub runners.
+    # An optional frontend-only read token supports stricter cross-repository access.
+    frontend_token = env.get("FRONTEND_READ_TOKEN") or backend_token
+    frontend = api(f"{frontend_repository}/commits/main", frontend_token, opener)
     frontend_sha = checked_sha(frontend.get("sha"), "Frontend main SHA")
-    require_ci(repository, "backend-ci.yml", backend_sha, env.get("GITHUB_TOKEN", ""), opener)
-    require_ci(frontend_repository, "frontend-ci.yml", frontend_sha, "", opener)
+    require_ci(repository, "backend-ci.yml", backend_sha, backend_token, opener)
+    require_ci(frontend_repository, "frontend-ci.yml", frontend_sha, frontend_token, opener)
     values = {"backend_sha": backend_sha, "frontend_sha": frontend_sha,
               "frontend_repository": frontend_repository}
     try:
