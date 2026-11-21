@@ -10,6 +10,8 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
+import threading
 import time
 from pathlib import Path
 from urllib.error import URLError
@@ -64,14 +66,76 @@ def atomic_text(path, value):
     temporary.replace(path)
 
 
+def archive_configs(stream, expected_tags):
+    """Read portable config digests without extracting layers or buffering the archive.
+
+    Docker's classic store calls the config digest an image ID; containerd calls a
+    manifest/index digest an image ID instead. The saved config bytes survive both.
+    """
+    configs, entries = {}, None
+    try:
+        with tarfile.open(fileobj=stream, mode="r|*") as archive:
+            for member in archive:
+                name = member.name.removeprefix("./")
+                if not member.isfile():
+                    continue
+                if name == "manifest.json":
+                    if entries is not None or member.size > 1024 * 1024:
+                        raise DeploymentError("Invalid Docker archive manifest")
+                    entries = json.loads(archive.extractfile(member).read())
+                elif re.fullmatch(r"(?:blobs/sha256/[0-9a-f]{64}|[0-9a-f]{64}\.json)", name):
+                    # Small layers also use blob names. Only retain actual image configs.
+                    if member.size > 1024 * 1024:
+                        continue
+                    raw = archive.extractfile(member).read()
+                    try:
+                        config = json.loads(raw)
+                    except (ValueError, UnicodeError):
+                        continue
+                    if not isinstance(config, dict) or not {"os", "architecture", "rootfs"} <= config.keys():
+                        continue
+                    config_digest = hashlib.sha256(raw).hexdigest()
+                    if config_digest != name.removeprefix("blobs/sha256/").removesuffix(".json"):
+                        raise DeploymentError("Docker archive config checksum does not match")
+                    if name in configs or len(configs) >= 64:
+                        raise DeploymentError("Duplicate or excessive Docker image configs")
+                    configs[name] = ("sha256:" + config_digest, config["os"], config["architecture"])
+    except (tarfile.TarError, ValueError, UnicodeError, OSError) as error:
+        raise DeploymentError("Cannot read Docker image archive metadata") from error
+    if not isinstance(entries, list):
+        raise DeploymentError("Docker archive manifest is missing or invalid")
+    selected = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("RepoTags"), list):
+            raise DeploymentError("Invalid Docker archive image entry")
+        for tag in entry["RepoTags"]:
+            if not isinstance(tag, str):
+                raise DeploymentError("Invalid Docker archive image tag")
+            tag = tag.removeprefix("docker.io/library/")
+            if tag not in expected_tags:
+                continue
+            config = configs.get(str(entry.get("Config", "")).removeprefix("./"))
+            if config is None or config[1:] != ("linux", "amd64"):
+                raise DeploymentError("Docker image config is missing or has the wrong platform")
+            if tag in selected:
+                raise DeploymentError("Duplicate selected image tag in Docker archive")
+            selected[tag] = config[0]
+    if set(selected) != set(expected_tags):
+        raise DeploymentError("Docker archive does not contain every selected image")
+    return selected
+
+
 def write_manifest(folder, backend, frontend):
+    selected_tags = tags(backend, frontend)
+    with (folder / "images.tar.gz").open("rb") as stream:
+        configs = archive_configs(stream, selected_tags.values())
     images = {}
-    for service, tag in tags(backend, frontend).items():
+    for service, tag in selected_tags.items():
         image_id = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", tag], text=True).strip()
         if not IMAGE_ID.fullmatch(image_id):
             raise DeploymentError("Docker returned an invalid image ID")
-        images[service] = {"tag": tag, "id": image_id}
-    manifest = {"version": 1, "backend_sha": backend, "frontend_sha": frontend,
+        images[service] = {"tag": tag, "id": image_id, "config_digest": configs[tag]}
+    manifest = {"version": 2, "backend_sha": backend, "frontend_sha": frontend,
                 "images": images, "archive_sha256": digest(folder / "images.tar.gz")}
     atomic_text(folder / "manifest.json", json.dumps(manifest, indent=2) + "\n")
 
@@ -82,14 +146,15 @@ def read_manifest(folder, backend, frontend):
     if path.stat().st_size > 65536:
         raise DeploymentError("Release manifest exceeds its size limit")
     value = json.loads(path.read_text(encoding="utf-8"))
-    if value.get("version") != 1 or value.get("backend_sha") != backend or value.get("frontend_sha") != frontend:
+    if value.get("version") != 2 or value.get("backend_sha") != backend or value.get("frontend_sha") != frontend:
         raise DeploymentError("Release manifest does not match the selected commits")
     images = value.get("images", {})
     if set(images) != set(expected):
         raise DeploymentError("A release must include all four images")
     for name, tag in expected.items():
         image = images[name]
-        if image.get("tag") != tag or not IMAGE_ID.fullmatch(image.get("id", "")):
+        if (image.get("tag") != tag or not IMAGE_ID.fullmatch(image.get("id", ""))
+                or not IMAGE_ID.fullmatch(image.get("config_digest", ""))):
             raise DeploymentError("Unexpected image in release manifest")
     if value.get("archive_sha256") != digest(folder / "images.tar.gz"):
         raise DeploymentError("Image archive checksum does not match")
@@ -135,9 +200,38 @@ class Deployment:
 
     def inspect_images(self, manifest):
         for image in manifest["images"].values():
-            details = self.command(["docker", "image", "inspect", "--format", "{{.Id}} {{.Os}} {{.Architecture}}", image["tag"]])
-            if details != f"{image['id']} linux amd64":
-                raise DeploymentError("Loaded image ID or platform does not match the release")
+            details = self.command(["docker", "image", "inspect", "--format", "{{.Os}} {{.Architecture}}", image["tag"]])
+            if details != "linux amd64":
+                raise DeploymentError("Loaded image platform does not match the release")
+        expected = {image["tag"]: image["config_digest"] for image in manifest["images"].values()}
+        if self.loaded_configs(expected) != expected:
+            raise DeploymentError("Loaded image config digest does not match the release")
+
+    def loaded_configs(self, selected_tags):
+        # Stream all four exports together: shared layers are emitted once and no
+        # second archive is written to the small VPS disk or held in RAM.
+        try:
+            process = subprocess.Popen(["docker", "image", "save", *selected_tags],
+                                       stdout=subprocess.PIPE, stderr=self.log, env=self.env)
+        except OSError as error:
+            raise DeploymentError("Cannot export loaded images for verification") from error
+        deadline = threading.Timer(300, process.kill)
+        deadline.start()
+        try:
+            configs = archive_configs(process.stdout, selected_tags)
+            while process.stdout.read(1024 * 1024):
+                pass  # Drain tar padding before waiting, so the writer cannot block.
+            if process.wait(timeout=10) != 0:
+                raise DeploymentError("Loaded image export failed; inspect deployment.log")
+            return configs
+        except subprocess.TimeoutExpired as error:
+            raise DeploymentError("Loaded image export timed out") from error
+        finally:
+            deadline.cancel()
+            if process.poll() is None:
+                process.kill()
+            process.stdout.close()
+            process.wait()
 
     def preflight(self):
         if sys.platform != "linux" or os.geteuid() != 0 or platform.machine() != "x86_64":

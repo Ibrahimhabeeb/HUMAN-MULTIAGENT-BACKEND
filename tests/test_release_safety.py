@@ -28,9 +28,9 @@ def safety_job(tmp_path, monkeypatch):
     folder.mkdir(parents=True)
     archive = folder / "images.tar.gz"
     archive.write_bytes(b"offline release fixture")
-    manifest = {"version": 1, "backend_sha": BACKEND, "frontend_sha": FRONTEND,
+    manifest = {"version": 2, "backend_sha": BACKEND, "frontend_sha": FRONTEND,
                 "archive_sha256": release.digest(archive),
-                "images": {key: {"tag": tag, "id": OLD_IMAGE}
+                "images": {key: {"tag": tag, "id": OLD_IMAGE, "config_digest": OLD_IMAGE}
                            for key, tag in release.tags(BACKEND, FRONTEND).items()}}
     (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     # Avoid inheriting or examining the machine's production/CI environment.
@@ -70,7 +70,7 @@ def process_boundary(monkeypatch, *, fail=None, failed_stops=()):
                 raise subprocess.CalledProcessError(1, args)
             text = ""
         elif args[:3] == ["docker", "image", "inspect"]:
-            text = OLD_IMAGE + " linux amd64"
+            text = "linux amd64"
         elif "psql" in args:
             text = "previous-revision"
         else:
@@ -82,6 +82,7 @@ def process_boundary(monkeypatch, *, fail=None, failed_stops=()):
         return subprocess.CompletedProcess(args, 0, stdout=text)
 
     monkeypatch.setattr(release.subprocess, "run", execute)
+    monkeypatch.setattr(release.Deployment, "loaded_configs", lambda self, selected: dict.fromkeys(selected, OLD_IMAGE))
     return calls
 
 
