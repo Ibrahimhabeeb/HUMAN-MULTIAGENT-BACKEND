@@ -193,6 +193,16 @@ push-to-main CI runs for those exact commits, builds all four images on GitHub, 
 Docker archive and a checksum/image-ID manifest over SSH. There is no registry account or token to configure.
 The 2 GB VPS loads the images; it does not compile the frontend during CD.
 
+The selector authenticates GitHub API lookups with the automatic `GITHUB_TOKEN`, including public frontend
+lookups, to avoid the smaller anonymous rate limit shared by a runner's network address. Temporary network
+and server errors have bounded retries; HTTP errors report the endpoint and status without exposing tokens
+or response bodies. Rate-limit failures are not retried before the server's reset/delay.
+
+If GitHub denies cross-repository access, add an optional backend **repository secret** named
+`FRONTEND_READ_TOKEN`: a fine-grained token restricted to the frontend repository with **Contents: read**
+and **Actions: read**. It is used only for frontend metadata/CI reads. This is a repository secret because
+the selection job runs before the production environment; the four production SSH secrets remain unchanged.
+
 ### Configure deployment access once
 
 In the backend repository, create **Settings → Environments → production**. Under deployment branches,

@@ -55,6 +55,9 @@ jobs:
           # GitHub supplies this temporary token automatically. It is not your
           # model API key, and you do not create a personal token for this step.
           GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret with frontend Contents/Actions read access.
+          # If unset, the script uses the automatic token for public frontend lookups.
+          FRONTEND_READ_TOKEN: ${{ secrets.FRONTEND_READ_TOKEN }}
         # The script rejects branches other than main. It selects the backend
         # commit for this run and resolves frontend main to one exact commit.
         # Both commits must have successful push-to-main CI runs. The script
