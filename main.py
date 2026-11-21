@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -20,6 +21,7 @@ from api.workspace import router as workspace_router
 from config import get_settings
 from db import SessionLocal, get_db, init_db
 from services import questionnaire
+from services.assessment_worker import AssessmentWorker
 
 
 def show_state_changes() -> None:
@@ -40,7 +42,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     with SessionLocal() as db:
         questionnaire.sync_items(db)  # the questions, for analysing answers in SQL
     show_state_changes()
-    yield
+    worker = AssessmentWorker(SessionLocal)
+    worker.start()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(worker.stop)
 
 
 settings = get_settings()

@@ -136,8 +136,10 @@ def test_questionnaire_opens_when_both_parts_are_done(client, team):
     ]
 
 
-def test_done_tests_the_same_final_snapshot_as_the_hidden_assessment(client, db, team):
+def test_done_tests_the_same_final_snapshot_as_the_hidden_assessment(client, db, team, assess_pending):
     client.post("/study/done")
+    assert db.query(Event).filter(Event.type == "tests_run").count() == 0
+    assess_pending()
     (run,) = db.query(Event).filter(Event.type == "tests_run").all()
     assert (run.actor, run.detail["trigger"], run.detail["snapshot"]) == ("verifier", "finish", "01_done")
     assessment = db.query(Event).filter(Event.type == "security_tests_run").one()
