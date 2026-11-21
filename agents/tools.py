@@ -82,6 +82,8 @@ def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: di
 
 
 def _fix_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    if ctx.fix_no_change:
+        return "you already recorded that no code change is justified for this finding."
     target = proposal["vulnerability"].strip()
     accepted = [v for v in state.vulnerabilities if v.status == "accepted"]
     if not any(v.id == target for v in accepted):
@@ -146,7 +148,10 @@ def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None)
         try:
             data = PROPOSAL_SCHEMAS[action_type].model_validate({k: v for k, v in fields.items() if v is not None})
         except ValidationError as e:
-            return f"Not recorded, the proposal is invalid: {e.errors(include_url=False, include_context=False)}"
+            reason = f"the proposal is invalid: {e.errors(include_url=False, include_context=False, include_input=False)}"
+            if action_type == "write_fix":
+                ctx.rejected_fixes.append(reason)
+            return f"Not recorded, {reason}"
         target = ctx.target_vulnerability
         if target and action_type == "write_fix" and data.vulnerability.strip() != target:
             reason = f"this follow-up is only for {target}."
@@ -236,6 +241,29 @@ def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None)
         return record("write_fix", vulnerability=vulnerability, file=file, find=find, replace=replace, why=why)
 
     @tool
+    def explain_no_fix(vulnerability: str, file: str, reason: str) -> str:
+        """Explain why no edit is justified for the current accepted finding. Give its id, an existing file path,
+        and concrete evidence (existing checks, constraints or task requirements). This changes no code, finding
+        status or mitigation. The developer decides whether to reconsider the finding."""
+        if not ctx.target_vulnerability or vulnerability.strip() != ctx.target_vulnerability:
+            problem = "explain only the vulnerability assigned to this follow-up."
+        elif file not in ctx.files:
+            problem = "cite an existing project file as evidence."
+        elif not 20 <= len(reason.strip()) <= 2000:
+            problem = "give a concrete explanation between 20 and 2000 characters."
+        elif any(p.action_type == "write_fix" for p in ctx.proposals):
+            problem = "a code edit has already been recorded in this follow-up."
+        else:
+            ctx.fix_no_change = (
+                f"No code change was made for {vulnerability.strip()}.\n\n"
+                f"**{file}:** {reason.strip()}\n\n"
+                "The finding remains accepted. Please review this explanation and decide whether to keep or reject it."
+            )
+            return "Explanation recorded. No code or security-state status has been changed."
+        ctx.rejected_fixes.append(problem)
+        return f"Not recorded: {problem}"
+
+    @tool
     def mark_resolved(item_id: str, reason: str) -> str:
         """Propose marking a planned mitigation (e.g. M1) as implemented, once the developer's current code contains
         that fix, with the reason."""
@@ -246,5 +274,12 @@ def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None)
         """Propose a pytest file, e.g. path "tests/test_login.py"."""
         return record("propose_test", path=path, content=content, base_content=ctx.files.get(path))
 
+    def invalid_fix_arguments(error):
+        reason = f"tool arguments are invalid: {error.errors(include_url=False, include_context=False, include_input=False)}"
+        ctx.rejected_fixes.append(reason)
+        return f"Not recorded: {reason}"
+
+    write_fix.handle_validation_error = invalid_fix_arguments
+    explain_no_fix.handle_validation_error = invalid_fix_arguments
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
     return [available[name] for name in names or TOOLS_FOR[actor]]
