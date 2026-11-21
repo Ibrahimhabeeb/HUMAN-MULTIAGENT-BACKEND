@@ -61,7 +61,7 @@ def test_private_suites_distinguish_safe_and_vulnerable_code(tmp_path, task_id, 
 
 
 @pytest.mark.parametrize("mode", ["team", "single"])
-def test_finish_runs_hidden_checks_without_public_or_agent_results(client, db, enrol, mode):
+def test_finish_queues_hidden_checks_without_public_or_agent_results(client, db, enrol, mode, assess_pending):
     enrol(mode=mode, task_id="C")
     ws = db.query(Workspace).one()
     files = client.get("/workspace/files").json()
@@ -73,6 +73,8 @@ def test_finish_runs_hidden_checks_without_public_or_agent_results(client, db, e
     assert response.status_code == 200
     assert response.json()["screen"] == "part_complete"
     assert "security_tests_run" not in response.text
+    assert db.query(Event).filter(Event.type == security_assessment.EVENT_TYPE).count() == 0
+    assess_pending()
     assert db.query(UnitTestRecord).count() == 3
     event = db.query(Event).filter(Event.type == security_assessment.EVENT_TYPE).one()
     assert event.mode == mode
@@ -103,7 +105,7 @@ def test_timeout_and_missing_source_never_count_as_a_security_pass(tmp_path, mon
     assert missing["all_passed"] is False
 
 
-def test_repeated_assessment_of_the_same_submission_is_idempotent(client, db, team, monkeypatch):
+def test_repeated_assessment_of_the_same_submission_is_idempotent(client, db, team, monkeypatch, assess_pending):
     result = {
         "suite_version": "1", "suite_sha256": "a" * 64, "expected": 12,
         "counts": {"passed": 12, "failed": 0, "error": 0, "skipped": 0},
@@ -118,6 +120,7 @@ def test_repeated_assessment_of_the_same_submission_is_idempotent(client, db, te
 
     monkeypatch.setattr(security_assessment, "evaluate_snapshot", evaluate)
     client.post("/study/done")
+    assess_pending()
     ws = db.query(Workspace).one()
     event = db.query(Event).filter(Event.type == security_assessment.EVENT_TYPE).one()
     saved = Path(get_settings().snapshots_dir) / workspace.folder(ws).name / event.detail["snapshot"]
@@ -126,9 +129,10 @@ def test_repeated_assessment_of_the_same_submission_is_idempotent(client, db, te
     assert db.query(Event).filter(Event.type == security_assessment.EVENT_TYPE).count() == 1
 
 
-def test_finish_retains_a_failed_assessment_in_the_database(client, db, team, monkeypatch, tmp_path):
+def test_finish_retains_a_failed_assessment_in_the_database(client, db, team, monkeypatch, tmp_path, assess_pending):
     monkeypatch.setattr(security_assessment, "SUITES", tmp_path / "missing-suites")
     assert client.post("/study/done").status_code == 200
+    assess_pending()
     event = db.query(Event).filter(Event.type == security_assessment.EVENT_TYPE).one()
     assert event.detail["status"] == "error"
     assert event.detail["all_passed"] is False

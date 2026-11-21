@@ -11,7 +11,6 @@ from services import (
     runner,
     sessions,
     state_service,
-    submissions,
     workspace,
 )
 from services.errors import ConflictError
@@ -108,9 +107,8 @@ def editable_workspace(db: Session) -> Workspace:
 
 def done(db: Session) -> None:
     ws = editable_workspace(db)
-    # The Test/Verifier runs the unit tests on the final code. In single mode the results are only logged.
-    saved = _mark_done(db, ws)
-    submissions.assess(db, ws, saved)
+    # Commit the frozen code and pending assessment; tests must not delay the handoff.
+    _mark_done(db, ws)
 
 
 # ---- which screen to show ---------------------------------------------------------------------

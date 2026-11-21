@@ -11,6 +11,7 @@ from config import get_settings
 from db import get_db, init_db
 from main import app
 from services import content, study
+from services.assessment_worker import AssessmentWorker
 
 
 class StudyClient(TestClient):
@@ -59,6 +60,18 @@ def db():
 @pytest.fixture
 def client(db):
     return StudyClient(app)
+
+
+@pytest.fixture
+def assess_pending(db):
+    worker = AssessmentWorker(sessionmaker(bind=db.get_bind(), expire_on_commit=False))
+
+    def drain():
+        while worker.process_one():
+            pass
+        db.expire_all()
+
+    return drain
 
 
 @pytest.fixture

@@ -26,6 +26,16 @@ the hidden security assessment use it. If the runner is unavailable, production 
 falls back to running participant Python inside the API container. Neither test process can modify the saved
 submission. Unit and security outcomes refer to the same final snapshot at Finish part.
 
+Finish part waits only for the final snapshot and its database record. A single Python background worker in
+the API then runs the provided and hidden security tests on that frozen code, so task two and the questionnaire
+can open while assessment is pending. The worker uses its own database session and the submitted workspace ID;
+changing mode or finishing the questionnaire does not change which code is assessed. No extra broker is needed.
+After an API restart, unfinished assessments are picked up from the database. Already recorded test results
+are reused. Errors receive a `submission_assessment_finished` event with status `needs_attention`, so they do
+not run repeatedly; the private recovery command can retry them after the underlying problem is fixed.
+Allow assessments to finish before exporting final results. Pending or unavailable security results remain
+unscored in the existing analysis rather than being counted as failed or passing tests.
+
 Workspace writes have a 2 MiB aggregate file budget, checked before saves and snapshots. Saves, renames, deletes
 and final capture are coordinated per workspace, with a fresh completion check after acquiring the lock. Snapshots
 and test-job admission are bounded. A final submission records pending assessment before tests start, so its
