@@ -35,6 +35,7 @@ class AgentContext:
     earlier: list[Earlier] = field(default_factory=list)  # team mode only
     proposals: list[Proposal] = field(default_factory=list)
     rejected_fixes: list[str] = field(default_factory=list)
+    fix_no_change: str | None = None  # explicit explanation; never changes a finding or creates a mitigation
     target_vulnerability: str | None = None  # automatic follow-ups stay focused on the newly approved finding
 
     @property

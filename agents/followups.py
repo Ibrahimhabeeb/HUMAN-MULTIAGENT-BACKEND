@@ -1,7 +1,7 @@
 import time
 from uuid import uuid4
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import exists, select, update
 from sqlalchemy.orm import Session, aliased
 
@@ -11,6 +11,7 @@ from agents.roles import team_prompt
 from agents.team import _not_approved, _vulnerability_list
 from agents.tools import make_tools
 from agents.turns import model_call
+from llm import ModelCallError, ModelNotConfiguredError
 from models import Approval, Message, Workspace
 from services import chat
 from services.errors import ConflictError, NotFoundError
@@ -19,7 +20,7 @@ from services.followups import KIND
 
 LEASE_SECONDS = 600
 # Only a reviewer-owned fix can change the code. The frontend locks the editor while it runs.
-FIX_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state", "write_fix"]
+FIX_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state", "write_fix", "explain_no_fix"]
 GUIDANCE_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state"]
 
 
@@ -56,13 +57,16 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
         | ((Message.data["status"].as_string() == "running")
            & (Message.data["started_at"].as_float() <= now - LEASE_SECONDS)),
         ~busy,
-    ).values(data={**job.data, "status": "running", "started_at": now, "run_token": token, "error": None}))
+    ).values(data={**job.data, "status": "running", "started_at": now, "run_token": token, "error": None,
+                   "reviewer_reply": None, "fix_outcome": None}))
     db.commit()
     db.refresh(job)
     if claimed.rowcount != 1:
         return _result(db, job)
 
     started = time.monotonic()
+    reply = ""
+    fix_outcome = None
     try:
         ctx = build_context(ws)
         ctx.earlier = earlier_proposals(db, ws)
@@ -97,13 +101,37 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
                 "only what the fix needs. Preserve existing imports, classes and function interfaces; the tool rejects "
                 "new undefined names or syntax errors. Then say in one or two sentences what you changed "
                 "and why, without repeating "
-                "the code. Do not propose new vulnerabilities.\n\n"
+                "the code. If the finding is unsupported or already prevented by existing controls, use "
+                "explain_no_fix with the file and concrete evidence instead. An accepted finding may still be "
+                "mistaken; an expected exception is not by itself a security vulnerability. Do not change code "
+                "just to produce an edit. Do not propose new vulnerabilities.\n\n"
                 f"Current project files:\n{code_listing(ctx.files)}"
                 f"\n\n{_not_approved(ctx, actor)}"
             )
-            with model_call(db, ws, actor):
-                reply = runtime.run_agent(team_prompt(actor), make_tools(ctx, actor, names=FIX_TOOLS), [HumanMessage(text)])
-            if not ctx.proposals:
+            messages = [HumanMessage(text)]
+            tools = make_tools(ctx, actor, names=FIX_TOOLS)
+            for attempt in range(2):
+                with model_call(db, ws, actor):
+                    response = runtime.run_agent(team_prompt(actor), tools, messages)
+                if response.strip():
+                    reply = response
+                if ctx.proposals or ctx.fix_no_change:
+                    break
+                if attempt == 0:
+                    if response.strip():
+                        messages.append(AIMessage(response))
+                    rejection = f" Last tool rejection: {ctx.rejected_fixes[-1]}" if ctx.rejected_fixes else ""
+                    messages.append(HumanMessage(
+                        "No valid edit or no-change explanation was recorded. Use write_fix to submit the exact "
+                        "required edit, or explain_no_fix if no security fix is justified, citing existing code "
+                        f"and task requirements. Do not claim an edit was applied without using the tool.{rejection}"
+                    ))
+            if ctx.fix_no_change and not ctx.proposals:
+                reply = ctx.fix_no_change
+                fix_outcome = "no_change"
+            elif ctx.proposals:
+                fix_outcome = "written"
+            else:
                 detail = f" Last tool rejection: {ctx.rejected_fixes[-1]}" if ctx.rejected_fixes else ""
                 raise ConflictError(f"The Code Reviewer didn't write a fix for {target}.{detail} Retry it, or fix it yourself.")
 
@@ -121,7 +149,8 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
             ctx.proposals.clear()
         saved = chat.save_proposals(db, ws, ctx.proposals, commit=False)
         job.role = "agent"
-        job.data = {**job.data, "status": "complete", "approval_ids": [a.id for a in saved]}
+        job.data = {**job.data, "status": "complete", "approval_ids": [a.id for a in saved],
+                    "fix_outcome": fix_outcome if saved or fix_outcome == "no_change" else None}
         if hidden:
             job.data = {**job.data, "hidden": True}
         else:
@@ -135,7 +164,8 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
         db.execute(update(Message).where(
             Message.id == job.id, Message.data["run_token"].as_string() == token,
         ).values(data={**job.data, "status": "failed",
-                       "error": str(error) if isinstance(error, ConflictError) else None}))
+                       "reviewer_reply": reply or None,
+                       "error": str(error) if isinstance(error, (ConflictError, ModelCallError, ModelNotConfiguredError)) else None}))
         db.commit()
         raise
     db.refresh(job)

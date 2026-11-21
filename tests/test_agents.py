@@ -727,11 +727,104 @@ def test_a_followup_that_writes_no_fix_can_be_retried(client, team, model):
     refused = client.post(f"/chat/follow-ups/{job['id']}")
     assert refused.status_code == 409 and "didn't write a fix for V1" in refused.json()["detail"]
     assert [m["data"]["status"] for m in finding_jobs(client)] == ["failed"]
+    assert finding_jobs(client)[0]["data"]["reviewer_reply"] == "I would rather not."
+    assert model.roles() == ["reviewer", "reviewer", "reviewer"]  # one review, then at most two fix attempts
     assert client.get("/workspace/state").json()["mitigations"] == []
 
     model.scripts["reviewer"] = writes_the_fix
     assert client.post(f"/chat/follow-ups/{job['id']}").status_code == 200
     assert [m["data"]["status"] for m in finding_jobs(client)] == ["complete"]
+
+
+def test_a_missing_fix_tool_call_is_corrected_once(client, team, model):
+    (job,) = approve_finding(client, model)
+    attempts = []
+
+    def reviewer(tools):
+        attempts.append(True)
+        if len(attempts) == 1:
+            return "I will parameterize the query."
+        assert "No valid edit" in model.last("reviewer")["messages"][-1]
+        return writes_the_fix(tools)
+
+    model.scripts["reviewer"] = reviewer
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 200
+    assert len(attempts) == 2
+    assert response.json()["messages"][0]["data"]["fix_outcome"] == "written"
+    assert len(client.get("/workspace/state").json()["mitigations"]) == 1
+
+
+def test_reconsidering_a_finding_explains_no_change_without_marking_it_fixed(client, team, model):
+    (job,) = approve_finding(client, model)
+    before = client.get("/workspace/files/app/auth.py").json()["content"]
+    reason = "The database already enforces username uniqueness; the task accepts IntegrityError for duplicate registration."
+
+    def reviewer(tools):
+        assert tools["explain_no_fix"].invoke({"vulnerability": "V1", "file": "app/db.py", "reason": reason}).startswith(
+            "Explanation recorded"
+        )
+        return "The finding needs to be reconsidered."
+
+    model.scripts["reviewer"] = reviewer
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 200
+    message = response.json()["messages"][0]
+    assert message["data"]["status"] == "complete"
+    assert message["data"]["fix_outcome"] == "no_change"
+    assert reason in message["content"] and "No code change was made" in message["content"]
+    assert response.json()["approvals"] == []
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == before
+    state = client.get("/workspace/state").json()
+    assert state["mitigations"] == [] and state["vulnerabilities"][0]["status"] == "accepted"
+    assert model.roles() == ["reviewer", "reviewer"]
+
+
+def test_invalid_fix_arguments_are_reported_with_the_saved_reply(client, team, model):
+    (job,) = approve_finding(client, model)
+
+    def reviewer(tools):
+        result = tools["write_fix"].invoke({**FIX, "find": ""})
+        assert result.startswith("Not recorded")
+        return "I could not submit the replacement."
+
+    model.scripts["reviewer"] = reviewer
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 409
+    failed = finding_jobs(client)[0]["data"]
+    assert "proposal is invalid" in failed["error"]
+    assert failed["reviewer_reply"] == "I could not submit the replacement."
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+def test_no_change_explanation_is_limited_to_the_target_and_existing_files(client, team, model):
+    (job,) = approve_finding(client, model)
+
+    def reviewer(tools):
+        assert tools["explain_no_fix"].invoke({"vulnerability": "V2", "file": "app/db.py", "reason": "Already checked by the database."}).startswith("Not recorded")
+        assert tools["explain_no_fix"].invoke({"vulnerability": "V1", "file": "app/missing.py", "reason": "Already checked by the database."}).startswith("Not recorded")
+        return "No suitable explanation was recorded."
+
+    model.scripts["reviewer"] = reviewer
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 409
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+def test_missing_tool_arguments_are_retained_as_a_fix_rejection(client, team, model):
+    (job,) = approve_finding(client, model)
+
+    def reviewer(tools):
+        arguments = {key: value for key, value in FIX.items() if key != "find"}
+        assert tools["write_fix"].invoke(arguments).startswith("Not recorded")
+        return "The replacement was incomplete."
+
+    model.scripts["reviewer"] = reviewer
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 409
+    failed = finding_jobs(client)[0]["data"]
+    assert "tool arguments are invalid" in failed["error"] and "find" in failed["error"]
+    assert failed["reviewer_reply"] == "The replacement was incomplete."
 
 
 def test_a_rejected_reviewer_edit_explains_why_it_was_not_written(client, team, model):
