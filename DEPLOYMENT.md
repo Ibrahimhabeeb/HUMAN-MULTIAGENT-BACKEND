@@ -180,3 +180,102 @@ commits. Only then start the API and verify readiness and a known workspace. Res
 Production access logs are disabled by default. Operational Docker logs are rotated and can contain errors and
 security-state changes; handle them as study data. No synthetic data, local credentials, local database, code
 workspaces or exports are included in either production image.
+
+## 8. Manual CD through GitHub Actions
+
+The backend repository owns one **Deploy production** workflow for both repositories. It runs only when
+started from the Actions tab on `main`; a merge does not deploy automatically. Run it between participant
+sessions. The initial server setup above, a working HTTPS hostname, and the private `.env.production` file
+are prerequisites. This version targets the existing x86-64 Ubuntu VPS and uses a dedicated root SSH key.
+
+The workflow selects the backend commit and the frontend's `main` commit once. It requires successful
+push-to-main CI runs for those exact commits, builds all four images on GitHub, and transfers their compressed
+Docker archive and a checksum/image-ID manifest over SSH. There is no registry account or token to configure.
+The 2 GB VPS loads the images; it does not compile the frontend during CD.
+
+### Configure deployment access once
+
+In the backend repository, create **Settings → Environments → production**. Under deployment branches,
+select **Selected branches and tags** and allow the branch **main** only. Keep deployment secrets in that
+environment, not in workflow source. A required reviewer is optional; manual dispatch already gives control
+over release timing. If working alone, do not enable Prevent self-review alongside a required self-approval.
+
+Generate a dedicated deployment key on your laptop, using a new filename:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/secure_coding_room_actions -C "secure-coding-room-actions" -N ""
+```
+
+If that filename already exists, keep it and choose another filename. Add the new public `.pub` key as a
+separate line in the server's `/root/.ssh/authorized_keys`, keeping the existing login key. An authorized-key
+`restrict` option can disable forwarding and PTY access while allowing the noninteractive deployment commands.
+The key grants administrative access to this VPS: use it only for this deployment and keep the environment
+restricted to `main`. Do not replace or reuse your ordinary laptop login key.
+
+Add these four **environment secrets**:
+
+| Secret | Value |
+| --- | --- |
+| `DEPLOY_HOST` | Droplet's public IPv4 or SSH hostname, without a scheme |
+| `DEPLOY_USER` | `root` for this server setup |
+| `DEPLOY_SSH_KEY` | Contents of the new private key, copied directly into GitHub's secret editor |
+| `DEPLOY_KNOWN_HOSTS` | Verified server host-key line: `SERVER_IP ssh-ed25519 PUBLIC_HOST_KEY` |
+
+Obtain the server's public host key through your existing trusted SSH session or the DigitalOcean console:
+
+```bash
+cat /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+Use its key type and public key after the server IP in `DEPLOY_KNOWN_HOSTS`. This is the server host key,
+separate from the new deployment login key. Host verification is enforced; the workflow does not trust a
+fresh network key scan or disable host checking. The example uses SSH port 22. GitHub-hosted runners must be
+able to reach it; an IP-restricted firewall needs an appropriate runner/network arrangement first.
+
+The server needs Docker/Compose, Git, Python 3.11+, curl, gzip and systemd. Ubuntu 24.04 supplies the system
+Python; no extra Python packages are needed by the release helper. Model keys, database passwords and runner
+tokens remain in the server's `.env.production`. They are not transferred to GitHub for deployment.
+
+### Release and inspect the result
+
+After merging the CD PR and waiting for both repositories' main CI runs to pass, open the backend repository's
+**Actions → Deploy production → Run workflow**, selecting `main`. One workflow builds and releases the pair;
+there is no second frontend deployment button. Concurrent deployments are queued rather than cancelled.
+
+The server job runs under systemd and takes a host lock, so losing the SSH connection does not terminate it
+or allow another release to run concurrently. Cancelling the GitHub run also leaves an already launched
+server job running; inspect its recorded state before starting another release. It checks tracked files are unchanged, loads and verifies the
+images before downtime, stops frontend/API/runner, ends their disposable test jobs, and backs up PostgreSQL
+and `/data`. PostgreSQL stays running. The backup contains the prior commits, Compose configuration, image
+IDs/tags and migration revision. Both backup archives are checked before application code is switched.
+
+The checkouts move to the selected detached commits. An ignored `.release.env` records the selected image
+tags and commits; `deploy/manage.sh` reads it after `.env.production`. Production credentials are preserved.
+The selected test image is tagged as `secure-coding-room-tests:local` before the runner starts, so the required
+image is always included. Services start with `--no-build --pull never`; ordinary releases retain all named
+volumes and do not update PostgreSQL's major version.
+
+Success requires healthy services, an actual isolated pytest smoke run, the HTTPS frontend, and `/api/ready`.
+The GitHub run summary records the deployed pair and URL. Private server details are stored under:
+
+```text
+/opt/secure-coding-room/incoming/RUN_ID-ATTEMPT/state.json
+/opt/secure-coding-room/incoming/RUN_ID-ATTEMPT/deployment.log
+/opt/secure-coding-room/backend/backups/release-RUN_ID-ATTEMPT/
+```
+
+### Failure and recovery
+
+A preflight or image-loading failure leaves the current application running. Once maintenance has started,
+a failure stops the application services and keeps the database, backup and previous images. It never deletes
+study volumes, resets a Git checkout over tracked edits, automatically downgrades a schema, or starts old code
+against a possibly upgraded database. An incomplete backup has no `BACKUP_COMPLETE` marker.
+
+Inspect the recorded stage and private log before retrying. If returning to an earlier release, use
+`previous.json` and the saved Compose/release settings with the matching database/files backup described in
+section 6. Database/file restoration is an explicit administrative operation; it is not attempted automatically.
+Keep backup copies in private off-server storage. Do not prune previous images or remove incoming archives
+until recovery is no longer needed; these files use server disk space and are not automatically deleted.
+
+Source: [GitHub manual workflows](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow),
+[deployment environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).

@@ -27,6 +27,7 @@ services:
     logging: *logging
 
   runner:
+    image: ${RUNNER_IMAGE:-secure-coding-room-runner:latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.runner
@@ -53,6 +54,7 @@ services:
     logging: *logging
 
   api:
+    image: ${API_IMAGE:-secure-coding-room-api:latest}
     build: .
     restart: unless-stopped
     init: true
@@ -95,6 +97,7 @@ services:
     logging: *logging
 
   frontend:
+    image: ${FRONTEND_IMAGE:-secure-coding-room-frontend:latest}
     build: ../human-agent-frontend
     restart: unless-stopped
     environment:

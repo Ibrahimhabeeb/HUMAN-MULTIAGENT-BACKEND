@@ -1,0 +1,146 @@
+# This workflow lives in the backend repository, but releases BOTH projects together.
+# The stages are: select checked commits -> build images on GitHub -> deploy over SSH.
+# This is the label displayed in the repository's Actions tab.
+name: Deploy production
+
+# workflow_dispatch adds a "Run workflow" button. A push or PR merge does not
+# automatically deploy, because neither push nor pull_request is listed here.
+on:
+  workflow_dispatch:
+
+# Give the temporary GitHub token permission to read source code.
+# This does not grant permission to push commits into either repository.
+permissions:
+  contents: read
+
+# Do not run two releases from this repository at the same time.
+# Starting another run will not cancel the release that is already running.
+# GitHub may replace an older PENDING run with a newer pending run in this group.
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  # JOB 1: choose the exact versions that are allowed to be released.
+  # This job only reads GitHub information; it does not connect to the VPS.
+  select:
+    name: Select checked versions
+    # This is a temporary GitHub-hosted machine, separate from DigitalOcean.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The selector needs to read the backend's completed CI workflow runs.
+      actions: read
+    # A SHA is the full Git commit ID. These outputs carry the selected commit
+    # IDs and frontend repository name to the second job, on its own machine.
+    # "versions" refers to the step ID below, not to a branch or service.
+    outputs:
+      backend_sha: ${{ steps.versions.outputs.backend_sha }}
+      frontend_sha: ${{ steps.versions.outputs.frontend_sha }}
+      frontend_repository: ${{ steps.versions.outputs.frontend_repository }}
+    steps:
+      - name: Check out deployment code
+        # "uses" runs an existing action. The hash pins the version of the
+        # checkout ACTION; it is not the application commit being deployed.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Do not keep the checkout token available for later Git commands.
+          persist-credentials: false
+          # Download the backend source into this folder on the GitHub machine.
+          path: backend
+      - name: Require successful CI for both main commits
+        id: versions
+        env:
+          # GitHub supplies this temporary token automatically. It is not your
+          # model API key, and you do not create a personal token for this step.
+          GITHUB_TOKEN: ${{ github.token }}
+        # The script rejects branches other than main. It selects the backend
+        # commit for this run and resolves frontend main to one exact commit.
+        # Both commits must have successful push-to-main CI runs. The script
+        # writes the selected values to GITHUB_OUTPUT for the outputs above.
+        run: python3 backend/deploy/verify_release.py
+
+  # JOB 2: build and deploy the pair selected by Job 1.
+  deploy:
+    name: Build and deploy production
+    # Unlike the independent lint/test jobs in CI, these jobs run in order.
+    # If "select" fails, this deployment job will not run.
+    needs: select
+    # Extra protection against releasing a feature branch. Also restrict the
+    # GitHub production environment to main in the repository settings.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # Maximum duration of this GitHub job, including builds and transfer.
+    timeout-minutes: 60
+    # This is a named GITHUB environment containing SSH secrets and branch rules.
+    # It is separate from the VPS's private .env.production configuration file.
+    environment: production
+    steps:
+      - name: Check deployment access is configured
+        # Read these from Settings -> Environments -> production -> Secrets.
+        # env makes them available only to this step's commands.
+        env:
+          # Public IP or SSH hostname of the DigitalOcean server.
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          # The current deployment helper expects the server's root account.
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          # A dedicated private SSH LOGIN key authorized on that server.
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          # The verified SERVER host key: confirms we reached the right server.
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        # Fail before spending time building if a required secret is missing.
+        # Bash's ${!name} reads the value of the variable named by "name".
+        # The error prints the missing setting's name, never its secret value.
+        run: |
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing production environment secret: $name" >&2
+              exit 1
+            fi
+          done
+      - name: Check out the selected backend
+        # Each job gets a fresh machine, so Job 2 must download the source again.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Use the checked commit, even if main advances while this run builds.
+          ref: ${{ needs.select.outputs.backend_sha }}
+          persist-credentials: false
+          path: backend
+      - name: Check out the selected frontend
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This is the separate frontend GitHub repository, not a subfolder
+          # of the backend repository. It is public, so no extra access token is needed.
+          repository: ${{ needs.select.outputs.frontend_repository }}
+          ref: ${{ needs.select.outputs.frontend_sha }}
+          persist-credentials: false
+          path: frontend
+      - name: Build and package all four images
+        env:
+          # Pass the selected commit IDs to the packaging script as variables.
+          BACKEND_SHA: ${{ needs.select.outputs.backend_sha }}
+          FRONTEND_SHA: ${{ needs.select.outputs.frontend_sha }}
+        # Build API, frontend, runner and test images ON GITHUB, saving RAM on the VPS.
+        # The script creates a compressed image archive and a manifest with image
+        # IDs and an archive checksum. Including the test image avoids the runner's
+        # "No such image: secure-coding-room-tests:local" startup problem.
+        # GITHUB_WORKSPACE is the checkout area; RUNNER_TEMP holds temporary files.
+        run: bash backend/deploy/package-release.sh "$BACKEND_SHA" "$FRONTEND_SHA" "$GITHUB_WORKSPACE/frontend" "$RUNNER_TEMP/release"
+      - name: Deploy over verified SSH
+        env:
+          BACKEND_SHA: ${{ needs.select.outputs.backend_sha }}
+          FRONTEND_SHA: ${{ needs.select.outputs.frontend_sha }}
+          # Step environments are separate, so provide the SSH settings again here.
+          # The image-building step above does not receive these SSH credentials.
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        # Upload the archive, manifest and deployment helper over verified SSH.
+        # The helper runs under systemd on the VPS so an SSH disconnect does not
+        # interrupt it. It checks images, backs up the database and saved code,
+        # applies the selected versions, then checks the runner and HTTPS site.
+        # Real model/database credentials remain in the server's .env.production.
+        # See DEPLOYMENT.md, section 8, for setup, progress files and recovery.
+        run: bash backend/deploy/ssh-release.sh "$RUNNER_TEMP/release"
