@@ -106,15 +106,15 @@ def test_numeric_answers_and_an_explicit_not_applicable_answer_are_saved(client,
     assert saved[("team", "roles_clear")] == "Not applicable"
 
 
-def test_v13_questionnaire_uses_text_scales_and_has_the_shared_state_and_open_feedback_questions():
+def test_v14_questionnaire_uses_text_scales_and_has_the_shared_state_and_open_feedback_questions():
     form = questionnaire.load()
     questions = [question for section in form.sections for question in section.questions]
-    assert form.version == "v1.3"
+    assert form.version == "v1.4"
     assert [question.number for question in questions] == list(range(1, 22))
     assert questions[0].text == "How confident are you that the code you completed with the {mode} meets the task's functional requirements?"
     assert questions[1].text == "How confident are you that the code you completed with the {mode} meets the task's security requirements?"
     assert questions[0].options == questions[1].options == [
-        "Not at all confident", "Slightly confident", "Moderately confident", "Very confident", "Extremely confident",
+        "Not at all confident", "Slightly confident", "Moderately confident", "Very confident",
     ]
     assert questions[2].key == "vulnerability_risk_trust"
     assert questions[3].key == "mitigation_trust"
@@ -127,3 +127,22 @@ def test_v13_questionnaire_uses_text_scales_and_has_the_shared_state_and_open_fe
     assert all("Not applicable" in question.options for question in questions[10:16])
     assert not any(question.type == "number" for question in questions)
     assert questions[-1].key == "open_feedback" and questions[-1].type == "text"
+
+
+def test_confidence_answers_use_four_choices_in_the_api_and_database(client, team, finish_parts, db):
+    finish_parts()
+    form = client.get("/study/questionnaire").json()
+    assert form["version"] == "v1.4"
+    invalid = client.post("/study/questionnaire", json=answers(("team", "security_confidence", "Extremely confident")))
+    assert invalid.status_code == 422
+    assert db.query(SurveyResponse).count() == 0
+    response = client.post("/study/questionnaire", json=answers(
+        ("team", "functional_confidence", "Very confident"),
+        ("single", "security_confidence", "Very confident"),
+    ))
+    assert response.status_code == 200
+    for key in ("functional_confidence", "security_confidence"):
+        item = db.get(QuestionnaireItem, key)
+        assert (item.scale_min, item.scale_max, item.version) == (1, 4, "v1.4")
+    scored = db.query(SurveyResponse).filter(SurveyResponse.value.is_not(None)).all()
+    assert len(scored) == 2 and all(answer.value_num == 4 for answer in scored)

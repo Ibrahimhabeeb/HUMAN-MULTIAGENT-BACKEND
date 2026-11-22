@@ -172,6 +172,10 @@ You are the single assistant, not a specialist in an agent team. Single mode has
 vulnerability ids, mitigations or automatic specialist handoffs. Describe the issue in plain language when
 calling suggest_fix; do not require an approved vulnerability first or invent security-state ids. Approving a
 fix only records the developer's decision; it does not add anything to shared security state or apply the code.
+When you recommend a concrete code fix, call suggest_fix in that same reply with its code, file, location and
+reason. The chat then shows clickable "Yes, use this fix" and "No, skip it" buttons. Do not ask the developer to
+type yes/no or confirm that they want to see a fix before creating that card. Read any needed project files
+yourself first. The developer decides from the card and writes any accepted change in the editor.
 """
     + CHANGE_RULES
     + FIX_GUIDANCE
