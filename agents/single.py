@@ -11,13 +11,17 @@ from services.events import log_event
 def send(db: Session, ws: Workspace, thread: str, content: str) -> dict:
     chat.require_thread(ws, thread)
     log_message_sent(db, ws, thread, content)
-    return agent_turn(db, ws, "assistant", ASSISTANT_PROMPT, build_context(ws), content)
+    ctx = build_context(ws)
+    text = f"{content}\n\nCurrent project files:\n{code_listing(ctx.files)}"
+    return agent_turn(db, ws, "assistant", ASSISTANT_PROMPT, ctx, text, shown=content)
 
 
 def send_stream(db: Session, ws: Workspace, thread: str, content: str):
     chat.require_thread(ws, thread)
     log_message_sent(db, ws, thread, content)
-    yield from agent_turn_stream(db, ws, "assistant", ASSISTANT_PROMPT, build_context(ws), content)
+    ctx = build_context(ws)
+    text = f"{content}\n\nCurrent project files:\n{code_listing(ctx.files)}"
+    yield from agent_turn_stream(db, ws, "assistant", ASSISTANT_PROMPT, ctx, text, shown=content)
     yield {"type": "done", "next": None}
 
 

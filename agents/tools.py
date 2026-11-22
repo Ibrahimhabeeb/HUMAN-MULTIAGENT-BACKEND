@@ -32,7 +32,7 @@ TOOLS_FOR: dict[str, list[str]] = {
         "mark_resolved",
     ],
     # The Test/Verifier has no tools: it runs the task's unit tests without the model.
-    "assistant": ["list_files", "read_file", "suggest_fix", "propose_test"],
+    "assistant": ["list_files", "read_file", "read_task_description", "suggest_fix", "propose_test"],
 }
 
 
