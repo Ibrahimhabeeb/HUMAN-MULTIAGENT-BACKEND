@@ -4,6 +4,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
 from agents.context import AgentContext, Proposal, numbered
+from agents.review_contracts import expected_duplicate_error
 from schemas.approval import PROPOSAL_SCHEMAS
 from schemas.security_state import SecurityState, Severity, StateItem
 from services.fix_validation import invalid_python_edit
@@ -59,6 +60,8 @@ def _risk_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> st
 
 
 def _vulnerability_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str | None:
+    if problem := expected_duplicate_error(ctx.files, proposal):
+        return problem
     description = proposal["description"]
     if re.search(r"\bno vulnerabilities? (?:were )?found\b", description, re.IGNORECASE) or re.search(
         r"\bno\b[^.!?]{0,100}\b(?:weakness(?:es)?|vulnerabilit(?:y|ies))\b[^.!?]{0,30}\bfound\b",
@@ -107,6 +110,8 @@ def _fix_problem(ctx: AgentContext, state: SecurityState, proposal: dict) -> str
         )
     content = ctx.files[file]
     updated = content.replace(proposal["find"], proposal["replace"], 1)
+    if updated == content:
+        return "the proposed replacement does not change the file. Use explain_no_fix if no change is justified."
     if problem := invalid_python_edit(file, content, updated):
         return problem
     return None
@@ -241,6 +246,24 @@ def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None)
         return record("write_fix", vulnerability=vulnerability, file=file, find=find, replace=replace, why=why)
 
     @tool
+    def write_fix_lines(vulnerability: str, file: str, start_line: int, end_line: int, replace: str, why: str) -> str:
+        """Write a fix by inclusive 1-based line numbers from the current file listing. Supply the replacement
+        code only; the server copies the original lines exactly. Select enough lines to identify a unique block.
+        Include imports in the selected range when they need changing. Existing edit validation still applies."""
+        if file not in ctx.files:
+            reason = f"there is no file called {file}. Use list_files to see the files."
+        else:
+            lines = ctx.files[file].splitlines(keepends=True)
+            if 1 <= start_line <= end_line <= len(lines):
+                find = "".join(lines[start_line - 1:end_line])
+                if replace and end_line < len(lines) and not replace.endswith("\n"):
+                    replace += "\n"
+                return record("write_fix", vulnerability=vulnerability, file=file, find=find, replace=replace, why=why)
+            reason = f"use an inclusive line range between 1 and {len(lines)} from read_file."
+        ctx.rejected_fixes.append(reason)
+        return f"Not recorded: {reason}"
+
+    @tool
     def explain_no_fix(vulnerability: str, file: str, reason: str) -> str:
         """Explain why no edit is justified for the current accepted finding. Give its id, an existing file path,
         and concrete evidence (existing checks, constraints or task requirements). This changes no code, finding
@@ -280,6 +303,7 @@ def make_tools(ctx: AgentContext, actor: str, *, names: list[str] | None = None)
         return f"Not recorded: {reason}"
 
     write_fix.handle_validation_error = invalid_fix_arguments
+    write_fix_lines.handle_validation_error = invalid_fix_arguments
     explain_no_fix.handle_validation_error = invalid_fix_arguments
     available = {t.name: t for t in locals().values() if isinstance(t, BaseTool)}
     return [available[name] for name in names or TOOLS_FOR[actor]]

@@ -755,6 +755,92 @@ def test_a_missing_fix_tool_call_is_corrected_once(client, team, model):
     assert len(client.get("/workspace/state").json()["mitigations"]) == 1
 
 
+def test_reviewer_uses_server_selected_lines_without_copying_the_original_text(client, team, model):
+    (job,) = approve_finding(client, model)
+    path = "/workspace/files/app/auth.py"
+    original = client.get(path).json()["content"]
+    line = original.splitlines().index(FIND.rstrip("\n")) + 1
+
+    def reviewer(tools):
+        prompt = model.last("reviewer")["messages"][-1]
+        assert "explicitly chose the Code Reviewer" in prompt
+        assert "Do not ask for confirmation again" in prompt
+        assert tools["write_fix_lines"].invoke({
+            "vulnerability": "V1", "file": "app/auth.py", "start_line": line, "end_line": line,
+            "replace": FIX["replace"].rstrip("\n"), "why": FIX["why"],
+        }) == WRITTEN
+        return "The query now uses parameters."
+
+    model.scripts["reviewer"] = reviewer
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 200
+    assert response.json()["approvals"][0]["proposal"]["find"] == FIND
+    assert client.get(path).json()["content"] == original.replace(FIND, FIX["replace"])
+
+
+def test_line_edits_keep_the_existing_stale_file_protection(client, team, model):
+    (job,) = approve_finding(client, model)
+    path = "/workspace/files/app/auth.py"
+    original = client.get(path).json()["content"]
+    line = original.splitlines().index(FIND.rstrip("\n")) + 1
+    changed = original.replace(FIND, "    # developer's later edit\n")
+
+    def reviewer(tools):
+        assert tools["write_fix_lines"].invoke({
+            "vulnerability": "V1", "file": "app/auth.py", "start_line": line, "end_line": line,
+            "replace": FIX["replace"], "why": FIX["why"],
+        }) == WRITTEN
+        client.put(path, json={"content": changed})
+        return "The replacement was submitted."
+
+    model.scripts["reviewer"] = reviewer
+    assert client.post(f"/chat/follow-ups/{job['id']}").status_code == 409
+    assert client.get(path).json()["content"] == changed
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+def test_invalid_line_ranges_and_unchanged_replacements_are_rejected(client, team, model):
+    (job,) = approve_finding(client, model)
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    line = original.splitlines().index(FIND.rstrip("\n")) + 1
+
+    def reviewer(tools):
+        arguments = {"vulnerability": "V1", "file": "app/auth.py", "start_line": 0, "end_line": line,
+                     "replace": FIX["replace"], "why": FIX["why"]}
+        assert tools["write_fix_lines"].invoke(arguments).startswith("Not recorded: use an inclusive line range")
+        assert "does not change the file" in tools["write_fix_lines"].invoke(arguments | {
+            "start_line": line, "end_line": line, "replace": FIND,
+        })
+        return "No valid change was recorded."
+
+    model.scripts["reviewer"] = reviewer
+    assert client.post(f"/chat/follow-ups/{job['id']}").status_code == 409
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+def test_older_approved_duplicate_error_is_explained_without_an_unnecessary_edit(client, db, team, model):
+    from test_starter_tasks import REFERENCES
+
+    safe_code = REFERENCES["A"]
+    assert client.put("/workspace/files/app/auth.py", json={"content": safe_code}).status_code == 200
+    finding = approvals.request_approval(db, study.current_workspace(db), "reviewer", "propose_vulnerability", VULNERABILITY | {
+        "description": "register_user has an uncaught IntegrityError for duplicate usernames, causing a leak if exposed.",
+        "cwe": "CWE-285", "line": 9,
+    })
+    assert decide(client, finding.id).status_code == 200
+    assert client.post(f"/approvals/{finding.id}/fix-choice", json={"choice": "reviewer"}).status_code == 200
+    (job,) = finding_jobs(client)
+    model.scripts["reviewer"] = lambda tools: pytest.fail("A known contract contradiction must not cause a code edit")
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 200
+    message = response.json()["messages"][0]
+    assert message["data"]["fix_outcome"] == "no_change"
+    assert "UNIQUE" in message["content"] and "IntegrityError" in message["content"]
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == safe_code
+    state = client.get("/workspace/state").json()
+    assert state["vulnerabilities"][0]["status"] == "accepted" and state["mitigations"] == []
+
+
 def test_reconsidering_a_finding_explains_no_change_without_marking_it_fixed(client, team, model):
     (job,) = approve_finding(client, model)
     before = client.get("/workspace/files/app/auth.py").json()["content"]
