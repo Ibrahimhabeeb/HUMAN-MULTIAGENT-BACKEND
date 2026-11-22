@@ -160,6 +160,7 @@ def login(username: str, password: str):
     assert threat["data"]["threat_example"] == {
         "path": "app/auth.py",
         "language": "python",
+        "function": "login",
         "code": "def login(username: str, password: str):\n    return conn.execute(f\"SELECT * FROM users WHERE username = '{username}'\")",
     }
 
@@ -448,6 +449,37 @@ def test_review_runs_the_unit_tests_then_the_code_reviewer(client, db, team, mod
     assert (study_dirs / "snapshots" / "P01_A_team" / asked["data"]["snapshot"] / "app" / "auth.py").is_file()
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+def test_reviewer_receives_missing_function_collection_error_with_the_task_contract(client, team, model, streaming):
+    say(client, "Help me with the task")
+    model.calls.clear()
+    source = "def register_user(conn, username: str, password: str) -> None:\n    raise NotImplementedError\n"
+    assert client.put("/workspace/files/app/auth.py", json={"content": source}).status_code == 200
+
+    def reviewer(tools):
+        prompt = model.last("reviewer")["messages"][-1]
+        assert "[Test/Verifier result from this review]" in prompt
+        assert "cannot import name 'login'" in prompt
+        assert "tests/test_functional.py" in prompt
+        assert "register_user(conn, username, password)" in prompt
+        assert "login(conn, username, password)" in prompt
+        assert "def register_user(" in tools["read_file"].invoke({"path": "app/auth.py"})
+        return "Functional problem: login is missing from app/auth.py, blocking test collection. Only register_user can be reviewed."
+
+    model.scripts["reviewer"] = reviewer
+    if streaming:
+        model.route_to = ("reviewer", "you requested a review", True)
+        events = stream_say(client, "Please review my code")
+        completed = [event for event in events if event["type"] == "agent_complete"]
+        assert completed[-1]["agent"] == "reviewer"
+        assert completed[-1]["approvals"] == []
+    else:
+        result = review(client)
+        assert result["messages"][1]["data"]["run"]["status"] == "error"
+        assert result["approvals"] == []
+    assert model.roles()[-1] == "reviewer"
+
+
 def test_a_review_returns_the_test_results_before_the_code_reviewer_starts(client, team, model):
     first = client.post("/chat/review").json()
     asked, tested = first["messages"]
@@ -607,6 +639,30 @@ def test_single_followup_receives_fresh_files_and_keeps_prior_chat_compact(clien
     assert "### README.md" in messages[-1]
     assert [message["content"] for message in client.get("/chat/assistant").json() if message["role"] == "human"] == [
         "Explain the task", "Explain my latest edit",
+    ]
+
+
+@pytest.mark.parametrize("task_id", list("ABCDEFG"))
+@pytest.mark.parametrize("streaming", [False, True])
+def test_single_greeting_and_help_already_include_the_selected_task(client, enrol, model, task_id, streaming):
+    enrol(mode="single", task_id=task_id)
+    files = client.get("/workspace/files").json()
+    readme = files["README.md"]["content"]
+    source_paths = [path for path in files if path.startswith("app/") and path.endswith(".py")]
+    for question in ("hey", "need help with this task"):
+        if streaming:
+            events = stream_say(client, question, thread="assistant")
+            assert events[-1] == {"type": "done", "next": None}
+        else:
+            assert say(client, question, thread="assistant").status_code == 200
+        message = model.last("assistant")["messages"][-1]
+        assert message.startswith(question + "\n\nCurrent project files:")
+        assert readme.splitlines()[0] in message
+        assert all(f"### {path}" in message for path in source_paths)
+    assert model.roles() == ["assistant", "assistant"]
+    assert model.last("assistant")["messages"][:-1] == ["hey", "assistant reply"]
+    assert [m["content"] for m in client.get("/chat/assistant").json() if m["role"] == "human"] == [
+        "hey", "need help with this task",
     ]
 
 
@@ -800,6 +856,92 @@ def test_a_missing_fix_tool_call_is_corrected_once(client, team, model):
     assert len(attempts) == 2
     assert response.json()["messages"][0]["data"]["fix_outcome"] == "written"
     assert len(client.get("/workspace/state").json()["mitigations"]) == 1
+
+
+def test_reviewer_uses_server_selected_lines_without_copying_the_original_text(client, team, model):
+    (job,) = approve_finding(client, model)
+    path = "/workspace/files/app/auth.py"
+    original = client.get(path).json()["content"]
+    line = original.splitlines().index(FIND.rstrip("\n")) + 1
+
+    def reviewer(tools):
+        prompt = model.last("reviewer")["messages"][-1]
+        assert "explicitly chose the Code Reviewer" in prompt
+        assert "Do not ask for confirmation again" in prompt
+        assert tools["write_fix_lines"].invoke({
+            "vulnerability": "V1", "file": "app/auth.py", "start_line": line, "end_line": line,
+            "replace": FIX["replace"].rstrip("\n"), "why": FIX["why"],
+        }) == WRITTEN
+        return "The query now uses parameters."
+
+    model.scripts["reviewer"] = reviewer
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 200
+    assert response.json()["approvals"][0]["proposal"]["find"] == FIND
+    assert client.get(path).json()["content"] == original.replace(FIND, FIX["replace"])
+
+
+def test_line_edits_keep_the_existing_stale_file_protection(client, team, model):
+    (job,) = approve_finding(client, model)
+    path = "/workspace/files/app/auth.py"
+    original = client.get(path).json()["content"]
+    line = original.splitlines().index(FIND.rstrip("\n")) + 1
+    changed = original.replace(FIND, "    # developer's later edit\n")
+
+    def reviewer(tools):
+        assert tools["write_fix_lines"].invoke({
+            "vulnerability": "V1", "file": "app/auth.py", "start_line": line, "end_line": line,
+            "replace": FIX["replace"], "why": FIX["why"],
+        }) == WRITTEN
+        client.put(path, json={"content": changed})
+        return "The replacement was submitted."
+
+    model.scripts["reviewer"] = reviewer
+    assert client.post(f"/chat/follow-ups/{job['id']}").status_code == 409
+    assert client.get(path).json()["content"] == changed
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+def test_invalid_line_ranges_and_unchanged_replacements_are_rejected(client, team, model):
+    (job,) = approve_finding(client, model)
+    original = client.get("/workspace/files/app/auth.py").json()["content"]
+    line = original.splitlines().index(FIND.rstrip("\n")) + 1
+
+    def reviewer(tools):
+        arguments = {"vulnerability": "V1", "file": "app/auth.py", "start_line": 0, "end_line": line,
+                     "replace": FIX["replace"], "why": FIX["why"]}
+        assert tools["write_fix_lines"].invoke(arguments).startswith("Not recorded: use an inclusive line range")
+        assert "does not change the file" in tools["write_fix_lines"].invoke(arguments | {
+            "start_line": line, "end_line": line, "replace": FIND,
+        })
+        return "No valid change was recorded."
+
+    model.scripts["reviewer"] = reviewer
+    assert client.post(f"/chat/follow-ups/{job['id']}").status_code == 409
+    assert client.get("/workspace/state").json()["mitigations"] == []
+
+
+def test_older_approved_duplicate_error_is_explained_without_an_unnecessary_edit(client, db, team, model):
+    from test_starter_tasks import REFERENCES
+
+    safe_code = REFERENCES["A"]
+    assert client.put("/workspace/files/app/auth.py", json={"content": safe_code}).status_code == 200
+    finding = approvals.request_approval(db, study.current_workspace(db), "reviewer", "propose_vulnerability", VULNERABILITY | {
+        "description": "register_user has an uncaught IntegrityError for duplicate usernames, causing a leak if exposed.",
+        "cwe": "CWE-285", "line": 9,
+    })
+    assert decide(client, finding.id).status_code == 200
+    assert client.post(f"/approvals/{finding.id}/fix-choice", json={"choice": "reviewer"}).status_code == 200
+    (job,) = finding_jobs(client)
+    model.scripts["reviewer"] = lambda tools: pytest.fail("A known contract contradiction must not cause a code edit")
+    response = client.post(f"/chat/follow-ups/{job['id']}")
+    assert response.status_code == 200
+    message = response.json()["messages"][0]
+    assert message["data"]["fix_outcome"] == "no_change"
+    assert "UNIQUE" in message["content"] and "IntegrityError" in message["content"]
+    assert client.get("/workspace/files/app/auth.py").json()["content"] == safe_code
+    state = client.get("/workspace/state").json()
+    assert state["vulnerabilities"][0]["status"] == "accepted" and state["mitigations"] == []
 
 
 def test_reconsidering_a_finding_explains_no_change_without_marking_it_fixed(client, team, model):
