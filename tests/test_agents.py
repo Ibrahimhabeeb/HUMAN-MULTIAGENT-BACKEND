@@ -610,6 +610,30 @@ def test_single_followup_receives_fresh_files_and_keeps_prior_chat_compact(clien
     ]
 
 
+@pytest.mark.parametrize("task_id", list("ABCDEFG"))
+@pytest.mark.parametrize("streaming", [False, True])
+def test_single_greeting_and_help_already_include_the_selected_task(client, enrol, model, task_id, streaming):
+    enrol(mode="single", task_id=task_id)
+    files = client.get("/workspace/files").json()
+    readme = files["README.md"]["content"]
+    source_paths = [path for path in files if path.startswith("app/") and path.endswith(".py")]
+    for question in ("hey", "need help with this task"):
+        if streaming:
+            events = stream_say(client, question, thread="assistant")
+            assert events[-1] == {"type": "done", "next": None}
+        else:
+            assert say(client, question, thread="assistant").status_code == 200
+        message = model.last("assistant")["messages"][-1]
+        assert message.startswith(question + "\n\nCurrent project files:")
+        assert readme.splitlines()[0] in message
+        assert all(f"### {path}" in message for path in source_paths)
+    assert model.roles() == ["assistant", "assistant"]
+    assert model.last("assistant")["messages"][:-1] == ["hey", "assistant reply"]
+    assert [m["content"] for m in client.get("/chat/assistant").json() if m["role"] == "human"] == [
+        "hey", "need help with this task",
+    ]
+
+
 @pytest.mark.parametrize("decision", ["approve", "reject"])
 def test_single_fix_decisions_never_read_or_change_shared_security_state(client, db, team, model, monkeypatch, decision):
     client.post("/workspace/state/vulnerabilities", json=VULNERABILITY)
