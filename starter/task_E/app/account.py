@@ -1,3 +1,5 @@
+import secrets  # noqa: F401
+
 from app.models import Account
 
 
