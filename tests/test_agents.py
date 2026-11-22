@@ -545,7 +545,7 @@ def test_single_mode_has_one_assistant(client, single, model):
     assert say(client, "Hello").status_code == 404
     assert next_reply(client).status_code == 409
     assert say(client, "How should I start?", thread="assistant").json()["next"] is None
-    assert model.last("assistant")["tools"] == ["list_files", "propose_test", "read_file", "suggest_fix"]
+    assert model.last("assistant")["tools"] == ["list_files", "propose_test", "read_file", "read_task_description", "suggest_fix"]
 
 
 def test_single_review_sends_the_neutral_message(client, single, model):
@@ -560,7 +560,54 @@ def test_single_review_sends_the_neutral_message(client, single, model):
 
     model.scripts.clear()
     say(client, "Thanks", thread="assistant")
-    assert model.last("assistant")["messages"] == [REVIEW_MESSAGE, "Here is a fix.", "Thanks"]
+    assert model.last("assistant")["messages"][:-1] == [REVIEW_MESSAGE, "Here is a fix."]
+    assert model.last("assistant")["messages"][-1].startswith("Thanks\n\nCurrent project files:")
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_single_chat_receives_readme_and_current_code_without_persisting_the_listing(client, enrol, model, streaming):
+    enrol(mode="single", task_id="B")
+    question = "Can you explain main.py and how I should start?"
+
+    def assistant(tools):
+        message = model.last("assistant")["messages"][-1]
+        assert message.startswith(question)
+        assert "### README.md" in message and "Task: File download" in message
+        assert "### app/storage.py" in message and "def download(" in message
+        assert "### tests/test_functional.py" in message
+        assert "### main.py" not in message
+        assert "In `app/storage.py`" in tools["read_task_description"].invoke({})
+        assert "get_security_state" not in tools and "write_fix" not in tools
+        return "This task uses app/storage.py: list_files lists available files and download returns their bytes."
+
+    model.scripts["assistant"] = assistant
+    if streaming:
+        events = stream_say(client, question, thread="assistant")
+        assert events[-1] == {"type": "done", "next": None}
+        assert next(event for event in events if event["type"] == "message")["message"]["content"] == question
+    else:
+        response = say(client, question, thread="assistant")
+        assert response.status_code == 200
+        assert response.json()["messages"][0]["content"] == question
+    saved = client.get("/chat/assistant").json()
+    assert saved[0]["content"] == question
+    assert len(saved) == 2 and "Current project files:" not in str(saved)
+    assert model.roles() == ["assistant"]
+
+
+def test_single_followup_receives_fresh_files_and_keeps_prior_chat_compact(client, enrol, model):
+    enrol(mode="single", task_id="B")
+    assert say(client, "Explain the task", thread="assistant").status_code == 200
+    original = client.get("/workspace/files/app/storage.py").json()["content"]
+    assert client.put("/workspace/files/app/storage.py", json={"content": original + "\n# latest editor version\n"}).status_code == 200
+    assert say(client, "Explain my latest edit", thread="assistant").status_code == 200
+    messages = model.last("assistant")["messages"]
+    assert messages[:-1] == ["Explain the task", "assistant reply"]
+    assert "# latest editor version" in messages[-1]
+    assert "### README.md" in messages[-1]
+    assert [message["content"] for message in client.get("/chat/assistant").json() if message["role"] == "human"] == [
+        "Explain the task", "Explain my latest edit",
+    ]
 
 
 @pytest.mark.parametrize("decision", ["approve", "reject"])
