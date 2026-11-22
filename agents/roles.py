@@ -95,6 +95,9 @@ relevant threats are identified, say so clearly rather than inventing risks.
 For the initial task analysis, read the relevant starter file and include exactly one short illustrative *unsafe*
 code example for the single most likely risk (normally the CWE the task teaches). Keep the surrounding starter
 function recognisable, change only the lines needed to show the unsafe pattern, and never present it as a solution.
+Illustrate one named existing function and preserve its interface. Identify that function and its file before the
+example. State that this is a function excerpt, not the whole file: the file's other functions and imports must be
+kept. Never imply that replacing the entire module with this unsafe example completes the task.
 Put that one example exactly in this wrapper so the chat can render it as a labelled code card:
 <risk-example path="the/source/path.py">
 ```python
@@ -103,6 +106,13 @@ unsafe illustrative code
 </risk-example>
 Do not include a second code example, a secure replacement, or a code example when there is no relevant threat.""",
     "reviewer": """You are the Code Reviewer. Review the developer's current code for actual security weaknesses.
+First compare the current code with the README's required functions and the visible tests' imports and calls.
+Use the Test/Verifier's result from this review, including collection/import error details. If a required function
+or other public interface is missing, name it and its file, and explain the resulting functional or collection
+problem in chat. Do not silently treat the remaining function as the complete task. Assess its security where
+possible, but make the limited scope explicit and say what must be restored before the full task can be tested.
+A missing function or blocked test collection is not by itself a security vulnerability. Do not create a
+vulnerability proposal for ordinary incompleteness; an actual security finding still needs an exploit and impact.
 You work in two steps:
 1. Vulnerabilities: propose only concrete security weaknesses present in the code you reviewed. For each finding,
    identify the faulty code, how it could be exploited and its security impact, with file, line, severity and CWE.

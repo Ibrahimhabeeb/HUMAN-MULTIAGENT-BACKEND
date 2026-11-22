@@ -160,6 +160,7 @@ def login(username: str, password: str):
     assert threat["data"]["threat_example"] == {
         "path": "app/auth.py",
         "language": "python",
+        "function": "login",
         "code": "def login(username: str, password: str):\n    return conn.execute(f\"SELECT * FROM users WHERE username = '{username}'\")",
     }
 
@@ -446,6 +447,37 @@ def test_review_runs_the_unit_tests_then_the_code_reviewer(client, db, team, mod
         "read_task_description",
     ]
     assert (study_dirs / "snapshots" / "P01_A_team" / asked["data"]["snapshot"] / "app" / "auth.py").is_file()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_reviewer_receives_missing_function_collection_error_with_the_task_contract(client, team, model, streaming):
+    say(client, "Help me with the task")
+    model.calls.clear()
+    source = "def register_user(conn, username: str, password: str) -> None:\n    raise NotImplementedError\n"
+    assert client.put("/workspace/files/app/auth.py", json={"content": source}).status_code == 200
+
+    def reviewer(tools):
+        prompt = model.last("reviewer")["messages"][-1]
+        assert "[Test/Verifier result from this review]" in prompt
+        assert "cannot import name 'login'" in prompt
+        assert "tests/test_functional.py" in prompt
+        assert "register_user(conn, username, password)" in prompt
+        assert "login(conn, username, password)" in prompt
+        assert "def register_user(" in tools["read_file"].invoke({"path": "app/auth.py"})
+        return "Functional problem: login is missing from app/auth.py, blocking test collection. Only register_user can be reviewed."
+
+    model.scripts["reviewer"] = reviewer
+    if streaming:
+        model.route_to = ("reviewer", "you requested a review", True)
+        events = stream_say(client, "Please review my code")
+        completed = [event for event in events if event["type"] == "agent_complete"]
+        assert completed[-1]["agent"] == "reviewer"
+        assert completed[-1]["approvals"] == []
+    else:
+        result = review(client)
+        assert result["messages"][1]["data"]["run"]["status"] == "error"
+        assert result["approvals"] == []
+    assert model.roles()[-1] == "reviewer"
 
 
 def test_a_review_returns_the_test_results_before_the_code_reviewer_starts(client, team, model):

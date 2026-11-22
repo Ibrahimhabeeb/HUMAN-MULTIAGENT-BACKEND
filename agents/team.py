@@ -129,6 +129,21 @@ def _waiting(messages: list[Message]) -> tuple[Message, Specialist] | None:
     return (asked, agent) if agent else None
 
 
+def _verification_details(message: Message) -> str:
+    run = message.data.get("run") or {}
+    details = []
+    for case in run.get("tests", []):
+        if case.get("outcome") == "passed":
+            continue
+        problem = case.get("details") or case.get("message")
+        if problem:
+            details.append(f"{case['file']}::{case['name']} ({case['outcome']}):\n{problem[-3000:]}")
+    if not details and run.get("status") in {"error", "timed_out"} and run.get("output"):
+        details.append(run["output"][-6000:])
+    evidence = "\n\n".join(details)[:9000]
+    return f"{message.content}\n\n{evidence}".strip()
+
+
 def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: AgentContext) -> str:
     # What the agent is given: the developer's message and what the others already answered; the Code Reviewer
     # always gets the current code and what is in the state, including the unit tests' latest results.
@@ -158,6 +173,10 @@ def _input(agent: Specialist, asked: Message, replies: list[Message], ctx: Agent
         if agent == "threat_modeller":
             risks = _risk_list(ctx.state or SecurityState()) or "(none yet)"
             text += f"\n\nThe risks already in the security state (don't suggest these again):\n{risks}"
+    if agent == "reviewer":
+        verified = next((reply for reply in reversed(replies) if reply.data.get("agent") == "verifier"), None)
+        if verified is not None:
+            text += f"\n\n[Test/Verifier result from this review]\n{_verification_details(verified)}"
     not_approved = _not_approved(ctx, agent)
     return f"{text}\n\n{not_approved}" if not_approved else text
 
