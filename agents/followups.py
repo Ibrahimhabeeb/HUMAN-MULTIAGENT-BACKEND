@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, aliased
 
 from agents import runtime
 from agents.context import build_context, code_listing, earlier_proposals
+from agents.review_contracts import expected_duplicate_error
 from agents.roles import team_prompt
 from agents.team import _not_approved, _vulnerability_list
 from agents.tools import make_tools
@@ -20,7 +21,7 @@ from services.followups import KIND
 
 LEASE_SECONDS = 600
 # Only a reviewer-owned fix can change the code. The frontend locks the editor while it runs.
-FIX_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state", "write_fix", "explain_no_fix"]
+FIX_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state", "write_fix_lines", "write_fix", "explain_no_fix"]
 GUIDANCE_TOOLS = ["list_files", "read_file", "read_task_description", "get_security_state"]
 
 
@@ -81,6 +82,10 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
             reply = f"{target} is no longer an accepted vulnerability; no fix is needed."
         elif any(m.vulnerability_id == target for m in ctx.state.mitigations):
             reply = f"{target} already has a mitigation; no fix is needed."
+        elif problem := expected_duplicate_error(ctx.files, vulnerability.model_dump()):
+            reply = (f"No code change was made for {target}.\n\n{problem}\n\n"
+                     "Please reconsider this finding in the shared security state. Its status has not been changed automatically.")
+            fix_outcome = "no_change"
         elif job.data.get("fix_choice") not in {"reviewer", "developer"}:
             reply = f"Choose who should write the fix for {target} before the Code Reviewer continues."
         elif job.data.get("fix_choice") == "developer":
@@ -96,8 +101,13 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
                 reply = runtime.run_agent(team_prompt(actor), make_tools(ctx, actor, names=GUIDANCE_TOOLS), [HumanMessage(text)])
         else:
             text = (
-                f"The developer accepted vulnerability {target}.\n\n{_vulnerability_list(ctx.state)}\n\n"
-                f"Write the fix for {target} now with write_fix. It goes straight into the developer's code, so change "
+                f"The developer accepted vulnerability {target} and explicitly chose the Code Reviewer to implement "
+                "the fix. That separate authorisation is already recorded. Do not ask for confirmation again or "
+                "ask the developer to call tools for you.\n\n"
+                f"{_vulnerability_list(ctx.state)}\n\n"
+                f"Write the fix for {target} now, preferably with write_fix_lines using the numbered current file. "
+                "The server will copy the original lines; do not reconstruct a find string from memory. "
+                "It goes straight into the developer's code, so change "
                 "only what the fix needs. Preserve existing imports, classes and function interfaces; the tool rejects "
                 "new undefined names or syntax errors. Then say in one or two sentences what you changed "
                 "and why, without repeating "
@@ -122,7 +132,8 @@ def run(db: Session, ws: Workspace, message_id: int) -> dict:
                         messages.append(AIMessage(response))
                     rejection = f" Last tool rejection: {ctx.rejected_fixes[-1]}" if ctx.rejected_fixes else ""
                     messages.append(HumanMessage(
-                        "No valid edit or no-change explanation was recorded. Use write_fix to submit the exact "
+                        "No valid edit or no-change explanation was recorded. Implementation is already authorised; "
+                        "do not ask for confirmation. Use write_fix_lines with current file line numbers to submit the "
                         "required edit, or explain_no_fix if no security fix is justified, citing existing code "
                         f"and task requirements. Do not claim an edit was applied without using the tool.{rejection}"
                     ))

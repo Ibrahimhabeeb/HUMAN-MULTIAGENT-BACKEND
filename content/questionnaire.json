@@ -1,13 +1,13 @@
 {
-  "version": "v1.3",
+  "version": "v1.4",
   "sections": [
     {
       "title": "Confidence and usability",
       "show_title": false,
       "asked_for": "each_mode",
       "questions": [
-        {"number": 1, "key": "functional_confidence", "type": "choice", "text": "How confident are you that the code you completed with the {mode} meets the task's functional requirements?", "options": ["Not at all confident", "Slightly confident", "Moderately confident", "Very confident", "Extremely confident"]},
-        {"number": 2, "key": "security_confidence", "type": "choice", "text": "How confident are you that the code you completed with the {mode} meets the task's security requirements?", "options": ["Not at all confident", "Slightly confident", "Moderately confident", "Very confident", "Extremely confident"]},
+        {"number": 1, "key": "functional_confidence", "type": "choice", "text": "How confident are you that the code you completed with the {mode} meets the task's functional requirements?", "options": ["Not at all confident", "Slightly confident", "Moderately confident", "Very confident"]},
+        {"number": 2, "key": "security_confidence", "type": "choice", "text": "How confident are you that the code you completed with the {mode} meets the task's security requirements?", "options": ["Not at all confident", "Slightly confident", "Moderately confident", "Very confident"]},
         {"number": 3, "key": "vulnerability_risk_trust", "type": "choice", "text": "I trusted the {mode} to identify security vulnerabilities and relevant risks in my code.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]},
         {"number": 4, "key": "mitigation_trust", "type": "choice", "text": "I trusted the {mode} to recommend appropriate mitigations for identified vulnerabilities.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]},
         {"number": 5, "key": "unnecessary_complexity", "type": "choice", "text": "I found working with the {mode} unnecessarily complex.", "options": ["Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly agree"]}
